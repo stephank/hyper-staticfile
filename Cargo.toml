@@ -1,27 +1,21 @@
 [package]
-
-name = "staticfile"
-version = "0.4.0"
-authors = ["Zach Pomerantz <zmp@umich.edu>", "Jonathan Reem <jonathan.reem@gmail.com>"]
-description = "Static file serving for Iron."
-repository = "https://github.com/iron/staticfile"
+name = "hyper-staticfile"
+version = "0.1.0"
+authors = [
+  "Zach Pomerantz <zmp@umich.edu>",
+  "Jonathan Reem <jonathan.reem@gmail.com>",
+  "Stéphan Kochen <stephan@kochen.nl>",
+]
+description = "Static file serving for Hyper 0.11"
+repository = "https://github.com/stephank/hyper-staticfile"
 license = "MIT"
-keywords = ["iron", "web", "http", "file"]
-
-[features]
-cache = ["filetime"]
+keywords = ["hyper", "web", "http", "file"]
 
 [dependencies]
-iron = "0.5"
-mount = "0.3"
-time = "0.1"
+futures = "0.1"
+hyper = "0.11"
+tokio-core = "0.1"
 url = "1.1"
 
-[dependencies.filetime]
-version = "0.1"
-optional = true
-
 [dev-dependencies]
-hyper = "0.10"
-router = "0.5"
-iron-test = "0.5"
+tempdir = "0.3"

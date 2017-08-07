@@ -1,6 +1,10 @@
-The MIT License (MIT)
+Copyright (c) 2017 Stéphan Kochen
 
-Copyright (c) 2014 iron
+Based on the `staticfile` crate from the Iron webframework:
+
+> Copyright (c) 2014 iron
+
+All code is covered by the MIT license:
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

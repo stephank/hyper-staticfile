@@ -1,5 +1,4 @@
-use iron::Request;
-use std::iter::FromIterator;
+use hyper::server::Request;
 use std::path::{Component, PathBuf, Path};
 use std::fs::{self, Metadata};
 use std::convert::AsRef;
@@ -10,7 +9,7 @@ pub struct RequestedPath {
 }
 
 #[inline]
-fn decode_percents(string: &&str) -> String {
+fn decode_percents(string: &str) -> String {
     percent_decode(string.as_bytes()).decode_utf8().unwrap().into_owned()
 }
 
@@ -32,7 +31,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 impl RequestedPath {
     pub fn new<P: AsRef<Path>>(root_path: P, request: &Request) -> RequestedPath {
-        let decoded_req_path = PathBuf::from_iter(request.url.path().iter().map(decode_percents));
+        let decoded_req_path = PathBuf::from(decode_percents(request.path()));
         let mut result = root_path.as_ref().to_path_buf();
         result.extend(&normalize_path(&decoded_req_path));
         RequestedPath { path: result }
@@ -45,28 +44,22 @@ impl RequestedPath {
         // to URLs like http://example.com
         // Some middleware may mutate the URL's path to violate this property,
         // so the empty list case is handled as a redirect.
-        let has_trailing_slash = match request.url.path().last() {
-            Some(&"") => true,
+        let has_trailing_slash = match request.path().as_bytes().last() {
+            Some(&b'/') => true,
             _ => false,
         };
 
         metadata.is_dir() && !has_trailing_slash
     }
 
-    pub fn get_file(self, metadata: &Metadata) -> Option<PathBuf> {
+    pub fn get_file(self, metadata: Metadata) -> Option<(PathBuf, Metadata)> {
         if metadata.is_file() {
-            return Some(self.path);
+            return Some((self.path, metadata));
         }
 
         let index_path = self.path.join("index.html");
-
         match fs::metadata(&index_path) {
-            Ok(m) =>
-                if m.is_file() {
-                    Some(index_path)
-                } else {
-                    None
-                },
+            Ok(m) => if m.is_file() { Some((index_path, m)) } else { None },
             Err(_) => None,
         }
     }

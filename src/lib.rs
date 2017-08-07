@@ -1,21 +1,15 @@
-#![crate_name = "staticfile"]
+#![crate_name = "hyper_staticfile"]
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-//! Static file-serving handler.
+//! Static file-serving for [Hyper 0.11](https://github.com/hyperium/hyper).
 
-extern crate time;
-
-#[cfg(feature = "cache")]
-extern crate filetime;
-
-extern crate iron;
-extern crate mount;
+extern crate futures;
+extern crate hyper;
+extern crate tokio_core;
 extern crate url;
 
-pub use static_handler::Static;
-#[cfg(feature = "cache")]
-pub use static_handler::Cache;
-
 mod requested_path;
-mod static_handler;
+mod static_service;
+
+pub use static_service::Static;

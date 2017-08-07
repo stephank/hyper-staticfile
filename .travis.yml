@@ -1,3 +1,4 @@
 language: rust
-rust: nightly
-after_success: 'curl https://raw.githubusercontent.com/iron/build-doc/master/build-doc.sh | sh '
+rust:
+  - stable
+  - nightly
