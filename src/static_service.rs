@@ -3,7 +3,7 @@ use std::fs::{self, File};
 use std::io::{Read, ErrorKind as IoErrorKind};
 use std::{mem, time};
 
-use futures::{Future, BoxFuture, Stream, Sink, Poll, Async, future};
+use futures::{Future, Stream, Sink, Poll, Async, future};
 use futures::sync::mpsc::SendError;
 
 use hyper::{Error, Chunk, Method, StatusCode, Body, header};
@@ -13,6 +13,8 @@ use tokio_core::reactor::Handle;
 
 use requested_path::RequestedPath;
 
+pub type ResponseFuture = Box<Future<Item=Response, Error=Error>>;
+
 /// The default upstream service for `Static`.
 ///
 /// Responds with 404 to GET/HEAD, and with 400 to other methods.
@@ -21,7 +23,7 @@ impl Service for DefaultUpstream {
     type Request = Request;
     type Response = Response;
     type Error = Error;
-    type Future = BoxFuture<Self::Response, Self::Error>;
+    type Future = ResponseFuture;
 
     fn call(&self, req: Self::Request) -> Self::Future {
         future::ok(Response::new().with_status(match req.method() {
@@ -111,12 +113,12 @@ impl<U> Service for Static<U>
             Request = Request,
             Response = Response,
             Error = Error,
-            Future = BoxFuture<Response, Error>
+            Future = ResponseFuture
         > {
     type Request = Request;
     type Response = Response;
     type Error = Error;
-    type Future = BoxFuture<Response, Error>;
+    type Future = ResponseFuture;
 
     fn call(&self, req: Request) -> Self::Future {
         // Handle only `GET`/`HEAD` and absolute paths.

@@ -3,17 +3,20 @@ extern crate hyper;
 extern crate hyper_staticfile;
 extern crate tokio_core;
 
-// This example serves the docs from target/doc/staticfile at /doc/
+// This example serves the docs from target/doc/hyper_staticfile at /doc/
 //
 // Run `cargo doc && cargo run --example doc_server`, then
 // point your browser to http://localhost:3000/
 
-use futures::{Future, BoxFuture, Stream, future};
+use futures::{Future, Stream, future};
+use hyper::Error;
 use hyper::server::{Http, Request, Response, Service};
 use hyper_staticfile::Static;
 use std::path::Path;
 use tokio_core::reactor::{Core, Handle};
-use tokio_core::net::{TcpListener};
+use tokio_core::net::TcpListener;
+
+type ResponseFuture = Box<Future<Item=Response, Error=Error>>;
 
 struct MainService {
     static_: Static,
@@ -30,17 +33,17 @@ impl MainService {
 impl Service for MainService {
     type Request = Request;
     type Response = Response;
-    type Error = hyper::Error;
-    type Future = BoxFuture<Self::Response, Self::Error>;
+    type Error = Error;
+    type Future = ResponseFuture;
 
     fn call(&self, req: Request) -> Self::Future {
         if req.path() == "/" {
             let res = Response::new()
                 .with_status(hyper::StatusCode::MovedPermanently)
                 .with_header(hyper::header::Location::new("/hyper_staticfile/"));
-            future::ok(res).boxed()
+            Box::new(future::ok(res))
         } else {
-            Service::call(&self.static_, req)
+            self.static_.call(req)
         }
     }
 }
