@@ -26,10 +26,10 @@ impl Service for DefaultUpstream {
     type Future = ResponseFuture;
 
     fn call(&self, req: Self::Request) -> Self::Future {
-        future::ok(Response::new().with_status(match req.method() {
+        Box::new(future::ok(Response::new().with_status(match req.method() {
             &Method::Head | &Method::Get => StatusCode::NotFound,
             _ => StatusCode::BadRequest,
-        })).boxed()
+        })))
     }
 }
 
@@ -141,10 +141,10 @@ impl<U> Service for Static<U>
                         self.upstream.call(req)
                     },
                     IoErrorKind::PermissionDenied => {
-                        future::ok(Response::new().with_status(StatusCode::Forbidden)).boxed()
+                        Box::new(future::ok(Response::new().with_status(StatusCode::Forbidden)))
                     },
                     _ => {
-                        future::err(Error::Io(e)).boxed()
+                        Box::new(future::err(Error::Io(e)))
                     },
                 };
             },
@@ -162,10 +162,10 @@ impl<U> Service for Static<U>
             }
 
             // Perform an HTTP 301 Redirect.
-            return future::ok(Response::new()
+            return Box::new(future::ok(Response::new()
                 .with_status(StatusCode::MovedPermanently)
                 .with_header(header::Location::new(target))
-            ).boxed();
+            ));
         }
 
         // Resolve the directory index, if necessary.
@@ -177,15 +177,15 @@ impl<U> Service for Static<U>
         // Check If-Modified-Since header.
         let modified = match metadata.modified() {
             Ok(time) => time,
-            Err(err) => return future::err(Error::Io(err)).boxed(),
+            Err(err) => return Box::new(future::err(Error::Io(err))),
         };
         let http_modified = header::HttpDate::from(modified);
 
         if let Some(&header::IfModifiedSince(ref value)) = req.headers().get() {
             if http_modified <= *value {
-                return future::ok(Response::new()
+                return Box::new(future::ok(Response::new()
                     .with_status(StatusCode::NotModified)
-                ).boxed();
+                ));
             }
         }
 
@@ -212,7 +212,7 @@ impl<U> Service for Static<U>
             &Method::Get => {
                 let file = match File::open(path) {
                     Ok(file) => file,
-                    Err(err) => return future::err(Error::Io(err)).boxed(),
+                    Err(err) => return Box::new(future::err(Error::Io(err))),
                 };
 
                 let (sender, body) = Body::pair();
@@ -226,6 +226,6 @@ impl<U> Service for Static<U>
             _ => unreachable!(),
         }
 
-        future::ok(res).boxed()
+        Box::new(future::ok(res))
     }
 }
