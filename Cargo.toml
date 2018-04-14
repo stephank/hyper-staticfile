@@ -12,10 +12,10 @@ license = "MIT"
 keywords = ["hyper", "web", "http", "file"]
 
 [dependencies]
-futures = "0.1"
-hyper = "0.11"
-tokio-core = "0.1"
-url = "1.1"
+futures = "0.1.21"
+hyper = "0.11.25"
+tokio = "0.1.5"
+url = "1.7.0"
 
 [dev-dependencies]
-tempdir = "0.3"
+tempdir = "0.3.7"

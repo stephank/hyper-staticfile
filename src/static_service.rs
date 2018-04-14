@@ -9,11 +9,11 @@ use futures::sync::mpsc::SendError;
 use hyper::{Error, Chunk, Method, StatusCode, Body, header};
 use hyper::server::{Service, Request, Response};
 
-use tokio_core::reactor::Handle;
+use tokio;
 
 use requested_path::RequestedPath;
 
-pub type ResponseFuture = Box<Future<Item=Response, Error=Error>>;
+pub type ResponseFuture = Box<Future<Item=Response, Error=Error> + Send + 'static>;
 
 /// The default upstream service for `Static`.
 ///
@@ -69,8 +69,6 @@ impl Stream for FileChunkStream {
 /// If an IO error occurs whilst attempting to serve a file, `hyper::Error(Io)` will be returned.
 #[derive(Clone)]
 pub struct Static<U = DefaultUpstream> {
-    /// Handle to the Tokio core.
-    handle: Handle,
     /// The path this service is serving files from.
     root: PathBuf,
     /// The upstream service to call when the path is not matched.
@@ -83,9 +81,8 @@ impl<U> Static<U> {
     /// Create a new instance of `Static` with a given root path and upstream.
     ///
     /// If `Path::new("")` is given, files will be served from the current directory.
-    pub fn with_upstream<P: Into<PathBuf>>(handle: &Handle, root: P, upstream: U) -> Self {
+    pub fn with_upstream<P: Into<PathBuf>>(root: P, upstream: U) -> Self {
         Self {
-            handle: handle.clone(),
             root: root.into(),
             upstream: upstream,
             cache_seconds: 0,
@@ -103,8 +100,8 @@ impl Static<DefaultUpstream> {
     /// Create a new instance of `Static` with a given root path.
     ///
     /// If `Path::new("")` is given, files will be served from the current directory.
-    pub fn new<P: Into<PathBuf>>(handle: &Handle, root: P) -> Self {
-        Self::with_upstream(handle, root, DefaultUpstream)
+    pub fn new<P: Into<PathBuf>>(root: P) -> Self {
+        Self::with_upstream(root, DefaultUpstream)
     }
 }
 
@@ -216,7 +213,7 @@ impl<U> Service for Static<U>
                 };
 
                 let (sender, body) = Body::pair();
-                self.handle.spawn(
+                tokio::spawn(
                     sender.send_all(FileChunkStream(file))
                         .map(|_| ())
                         .map_err(|_| ())
