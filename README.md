@@ -1,4 +1,8 @@
-# hyper-staticfile [![Build Status](https://secure.travis-ci.org/stephank/hyper-staticfile.png?branch=master)](https://travis-ci.org/stephank/hyper-staticfile)
+# hyper-staticfile
+
+[![Docs](https://docs.rs/hyper-staticfile/badge.svg)](https://docs.rs/hyper-staticfile)
+[![Crate](https://img.shields.io/crates/v/hyper-staticfile.svg)](https://crates.io/crates/hyper-staticfile)
+[![Build Status](https://travis-ci.org/stephank/hyper-staticfile.svg?branch=master)](https://travis-ci.org/stephank/hyper-staticfile)
 
 Static file-serving for [Hyper 0.11](https://github.com/hyperium/hyper).
 
