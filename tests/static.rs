@@ -2,7 +2,7 @@ extern crate futures;
 extern crate hyper;
 extern crate hyper_staticfile;
 extern crate tempdir;
-extern crate tokio_core;
+extern crate tokio;
 
 use std::{fs, str};
 use std::io::Write;
@@ -12,17 +12,16 @@ use hyper::{Method, StatusCode, Error, header};
 use hyper::server::{Service, Request, Response};
 use hyper_staticfile::Static;
 use tempdir::TempDir;
-use tokio_core::reactor::Core;
 
-type EmptyFuture = Box<Future<Item=(), Error=()>>;
-type ResponseFuture = Box<Future<Item=Response, Error=Error>>;
+type EmptyFuture = Box<Future<Item=(), Error=()> + Send + 'static>;
+type ResponseFuture = Box<Future<Item=Response, Error=Error> + Send + 'static>;
 
 struct Harness {
     static_: Static,
 }
 impl Harness {
     fn run<F>(files: Vec<(&str, &str)>, f: F)
-            where F: FnOnce(Harness) -> EmptyFuture {
+            where F: FnOnce(Harness) -> EmptyFuture + Send + 'static {
         let dir = TempDir::new("hyper-staticfile-tests").unwrap();
         for (subpath, contents) in files {
             let fullpath = dir.path().join(subpath);
@@ -32,12 +31,12 @@ impl Harness {
                 .expect("failed to write fixtures");
         }
 
-        let mut core = Core::new().unwrap();
-        let handle = core.handle();
-        let static_ = Static::new(&handle, dir.path().clone())
+        let static_ = Static::new(dir.path().clone())
             .with_cache_headers(3600);
 
-        core.run(f(Harness { static_ })).expect("failed to run event loop");
+        tokio::run(future::lazy(move || {
+            f(Harness { static_ })
+        }));
     }
 
     fn request(&self, req: Request) -> ResponseFuture {

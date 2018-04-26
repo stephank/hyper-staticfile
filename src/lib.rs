@@ -6,7 +6,7 @@
 
 extern crate futures;
 extern crate hyper;
-extern crate tokio_core;
+extern crate tokio;
 extern crate url;
 
 mod requested_path;
