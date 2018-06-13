@@ -1,56 +1,81 @@
 use std::path::PathBuf;
-use std::fs::{self, File};
-use std::io::{Read, ErrorKind as IoErrorKind};
-use std::{mem, time};
+use std::fs;
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::mem;
 
-use futures::{Future, Stream, Sink, Poll, Async, future};
-use futures::sync::mpsc::SendError;
+use chrono::{DateTime, SubsecRound};
+use chrono::offset::{Local as LocalTz};
 
-use hyper::{Error, Chunk, Method, StatusCode, Body, header};
-use hyper::server::{Service, Request, Response};
+use futures::{Async, Future, Poll, Stream, future};
 
-use tokio;
+use http::{Method, StatusCode, header};
+use http::response::Builder as ResponseBuilder;
+
+use hyper::{Body, Chunk};
+use hyper::service::Service;
+
+use tokio::fs::File;
+use tokio::io::AsyncRead;
 
 use requested_path::RequestedPath;
 
-pub type ResponseFuture = Box<Future<Item=Response, Error=Error> + Send + 'static>;
+type Request = ::http::Request<Body>;
+type Response = ::http::Response<Body>;
+type ResponseFuture = Box<Future<Item=Response, Error=String> + Send + 'static>;
 
 /// The default upstream service for `Static`.
 ///
 /// Responds with 404 to GET/HEAD, and with 400 to other methods.
 pub struct DefaultUpstream;
+
 impl Service for DefaultUpstream {
-    type Request = Request;
-    type Response = Response;
-    type Error = Error;
+    type ReqBody = Body;
+    type ResBody = Body;
+    type Error = String;
     type Future = ResponseFuture;
 
-    fn call(&self, req: Self::Request) -> Self::Future {
-        Box::new(future::ok(Response::new().with_status(match req.method() {
-            &Method::Head | &Method::Get => StatusCode::NotFound,
-            _ => StatusCode::BadRequest,
-        })))
+    fn call(&mut self, req: Request) -> ResponseFuture {
+        Box::new(future::result(
+            ResponseBuilder::new()
+                .status(match req.method() {
+                    &Method::HEAD | &Method::GET => StatusCode::NOT_FOUND,
+                    _ => StatusCode::BAD_REQUEST,
+                })
+                .body(Body::empty())
+                .map_err(|e| e.to_string())
+        ))
     }
 }
 
-/// A stream that produces Hyper chunks from a file.
-struct FileChunkStream(File);
-impl Stream for FileChunkStream {
-    type Item = Result<Chunk, Error>;
-    type Error = SendError<Self::Item>;
+/// Wrap a File into a stream of chunks.
+struct FileChunkStream {
+    file: File,
+    buf: Box<[u8; BUF_SIZE]>,
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        // TODO: non-blocking read
-        let mut buf: [u8; 16384] = unsafe { mem::uninitialized() };
-        match self.0.read(&mut buf) {
-            Ok(0) => Ok(Async::Ready(None)),
-            Ok(size) => Ok(Async::Ready(Some(Ok(
-                Chunk::from(buf[0..size].to_owned())
-            )))),
-            Err(err) => Ok(Async::Ready(Some(Err(Error::Io(err))))),
+impl FileChunkStream {
+    pub fn new(file: File) -> FileChunkStream {
+        let buf = Box::new(unsafe { mem::uninitialized() });
+        FileChunkStream { file, buf }
+    }
+}
+
+impl Stream for FileChunkStream {
+    type Item = Chunk;
+    type Error = IoError;
+
+    fn poll(&mut self) -> Poll<Option<Chunk>, IoError> {
+        match self.file.poll_read(&mut self.buf[..]) {
+            Ok(Async::Ready(0)) => Ok(Async::Ready(None)),
+            Ok(Async::Ready(size)) => Ok(Async::Ready(Some(
+                self.buf[..size].to_owned().into()))),
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(e) => Err(e),
         }
     }
 }
+
+const BUF_SIZE: usize = 8 * 1024;
 
 /// A Hyper service implementing static file serving.
 ///
@@ -65,8 +90,6 @@ impl Stream for FileChunkStream {
 ///
 /// Only `GET` and `HEAD` requests are handled. Requests with a different method are passed to
 /// the optional upstream service, or responded to with 400.
-///
-/// If an IO error occurs whilst attempting to serve a file, `hyper::Error(Io)` will be returned.
 #[derive(Clone)]
 pub struct Static<U = DefaultUpstream> {
     /// The path this service is serving files from.
@@ -107,28 +130,28 @@ impl Static<DefaultUpstream> {
 
 impl<U> Service for Static<U>
         where U: Service<
-            Request = Request,
-            Response = Response,
-            Error = Error,
+            ReqBody = Body,
+            ResBody = Body,
+            Error = String,
             Future = ResponseFuture
         > {
-    type Request = Request;
-    type Response = Response;
-    type Error = Error;
+    type ReqBody = Body;
+    type ResBody = Body;
+    type Error = String;
     type Future = ResponseFuture;
 
-    fn call(&self, req: Request) -> Self::Future {
+    fn call(&mut self, req: Request) -> ResponseFuture {
         // Handle only `GET`/`HEAD` and absolute paths.
         match req.method() {
-            &Method::Head | &Method::Get => {},
+            &Method::HEAD | &Method::GET => {},
             _ => return self.upstream.call(req),
         }
 
-        if req.uri().is_absolute() {
+        if req.uri().scheme_part().is_some() || req.uri().host().is_some() {
             return self.upstream.call(req);
         }
 
-        let requested_path = RequestedPath::new(&self.root, &req);
+        let requested_path = RequestedPath::new(&self.root, req.uri().path());
 
         let metadata = match fs::metadata(&requested_path.path) {
             Ok(meta) => meta,
@@ -138,10 +161,15 @@ impl<U> Service for Static<U>
                         self.upstream.call(req)
                     },
                     IoErrorKind::PermissionDenied => {
-                        Box::new(future::ok(Response::new().with_status(StatusCode::Forbidden)))
+                        Box::new(future::result(
+                            ResponseBuilder::new()
+                                .status(StatusCode::FORBIDDEN)
+                                .body(Body::empty())
+                                .map_err(|e| e.to_string())
+                        ))
                     },
                     _ => {
-                        Box::new(future::err(Error::Io(e)))
+                        Box::new(future::err(e.to_string()))
                     },
                 };
             },
@@ -149,19 +177,22 @@ impl<U> Service for Static<U>
 
         // If the URL ends in a slash, serve the file directly.
         // Otherwise, redirect to the directory equivalent of the URL.
-        if requested_path.should_redirect(&metadata, &req) {
+        if requested_path.should_redirect(&metadata, req.uri().path()) {
             // Append the trailing slash
-            let mut target = req.path().to_owned();
+            let mut target = req.uri().path().to_owned();
             target.push('/');
-            if let Some(query) = req.query() {
+            if let Some(query) = req.uri().query() {
                 target.push('?');
                 target.push_str(query);
             }
 
             // Perform an HTTP 301 Redirect.
-            return Box::new(future::ok(Response::new()
-                .with_status(StatusCode::MovedPermanently)
-                .with_header(header::Location::new(target))
+            return Box::new(future::result(
+                ResponseBuilder::new()
+                    .status(StatusCode::MOVED_PERMANENTLY)
+                    .header(header::LOCATION, target.as_str())
+                    .body(Body::empty())
+                    .map_err(|e| e.to_string())
             ));
         }
 
@@ -172,57 +203,58 @@ impl<U> Service for Static<U>
         };
 
         // Check If-Modified-Since header.
-        let modified = match metadata.modified() {
-            Ok(time) => time,
-            Err(err) => return Box::new(future::err(Error::Io(err))),
+        let modified: DateTime<LocalTz> = match metadata.modified() {
+            Ok(time) => time.into(),
+            Err(e) => return Box::new(future::err(e.to_string())),
         };
-        let http_modified = header::HttpDate::from(modified);
 
-        if let Some(&header::IfModifiedSince(ref value)) = req.headers().get() {
-            if http_modified <= *value {
-                return Box::new(future::ok(Response::new()
-                    .with_status(StatusCode::NotModified)
+        let if_modified = req.headers().get(header::IF_MODIFIED_SINCE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| DateTime::parse_from_rfc2822(v).ok())
+            .map(|v| v.with_timezone(&LocalTz));
+        match if_modified {
+            // Truncate before comparison, because the `Last-Modified` we serve
+            // is also truncated through `DateTime::to_rfc2822`.
+            Some(v) if modified.trunc_subsecs(0) <= v.trunc_subsecs(0) => {
+                return Box::new(future::result(
+                    ResponseBuilder::new()
+                        .status(StatusCode::NOT_MODIFIED)
+                        .body(Body::empty())
+                        .map_err(|e| e.to_string())
                 ));
-            }
+            },
+            _ => {},
         }
 
         // Build response headers.
-        let size = metadata.len();
-        let delta_modified = modified.duration_since(time::UNIX_EPOCH)
-            .expect("cannot express mtime as duration since epoch");
-        let etag = format!("{0:x}-{1:x}.{2:x}", size, delta_modified.as_secs(), delta_modified.subsec_nanos());
-        let mut res = Response::new()
-            .with_header(header::ContentLength(size))
-            .with_header(header::LastModified(http_modified))
-            .with_header(header::ETag(header::EntityTag::weak(etag)));
-
+        let mut res = ResponseBuilder::new();
+        res.header(header::CONTENT_LENGTH, format!("{}", metadata.len()).as_str());
+        res.header(header::LAST_MODIFIED, modified.to_rfc2822().as_str());
+        res.header(header::ETAG, format!("W/\"{0:x}-{1:x}.{2:x}\"",
+            metadata.len(), modified.timestamp(), modified.timestamp_subsec_nanos()).as_str());
         if self.cache_seconds != 0 {
-            res.headers_mut().set(header::CacheControl(vec![
-                header::CacheDirective::Public,
-                header::CacheDirective::MaxAge(self.cache_seconds)
-            ]));
+            res.header(header::CACHE_CONTROL, format!("public, max-age={}", self.cache_seconds).as_str());
         }
 
         // Stream response body.
         match req.method() {
-            &Method::Head => {},
-            &Method::Get => {
-                let file = match File::open(path) {
-                    Ok(file) => file,
-                    Err(err) => return Box::new(future::err(Error::Io(err))),
-                };
-
-                let (sender, body) = Body::pair();
-                tokio::spawn(
-                    sender.send_all(FileChunkStream(file))
-                        .map(|_| ())
-                        .map_err(|_| ())
-                );
-                res.set_body(body);
+            &Method::HEAD => {
+                Box::new(future::result(
+                    res.body(Body::empty())
+                        .map_err(|e| e.to_string())
+                ))
+            },
+            &Method::GET => {
+                Box::new(
+                    File::open(path)
+                        .map_err(|e| e.to_string())
+                        .and_then(move |file| {
+                            res.body(Body::wrap_stream(FileChunkStream::new(file)))
+                                .map_err(|e| e.to_string())
+                        })
+                )
             },
             _ => unreachable!(),
         }
-
-        Box::new(future::ok(res))
     }
 }

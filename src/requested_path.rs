@@ -1,4 +1,3 @@
-use hyper::server::Request;
 use std::path::{Component, PathBuf, Path};
 use std::fs::{self, Metadata};
 use std::convert::AsRef;
@@ -30,21 +29,21 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 impl RequestedPath {
-    pub fn new<P: AsRef<Path>>(root_path: P, request: &Request) -> RequestedPath {
-        let decoded_req_path = PathBuf::from(decode_percents(request.path()));
+    pub fn new<P: AsRef<Path>>(root_path: P, path: &str) -> RequestedPath {
+        let decoded_req_path = PathBuf::from(decode_percents(path));
         let mut result = root_path.as_ref().to_path_buf();
         result.extend(&normalize_path(&decoded_req_path));
         RequestedPath { path: result }
     }
 
-    pub fn should_redirect(&self, metadata: &Metadata, request: &Request) -> bool {
+    pub fn should_redirect(&self, metadata: &Metadata, path: &str) -> bool {
         // As per servo/rust-url/serialize_path, URLs ending in a slash have an
         // empty string stored as the last component of their path. Rust-url
         // even ensures that url.path() is non-empty by appending a forward slash
         // to URLs like http://example.com
         // Some middleware may mutate the URL's path to violate this property,
         // so the empty list case is handled as a redirect.
-        let has_trailing_slash = match request.path().as_bytes().last() {
+        let has_trailing_slash = match path.as_bytes().last() {
             Some(&b'/') => true,
             _ => false,
         };

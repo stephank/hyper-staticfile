@@ -1,4 +1,5 @@
 extern crate futures;
+extern crate http;
 extern crate hyper;
 extern crate hyper_staticfile;
 
@@ -11,11 +12,14 @@ use std::path::Path;
 
 use futures::{Future, future};
 
-use hyper::Error;
-use hyper::server::{Http, Request, Response, Service};
+use http::{StatusCode, header};
+use http::response::Builder as ResponseBuilder;
+use hyper::Body;
 use hyper_staticfile::Static;
 
-type ResponseFuture = Box<Future<Item=Response, Error=Error>>;
+type Request = http::Request<Body>;
+type Response = http::Response<Body>;
+type ResponseFuture = Box<Future<Item=Response, Error=String> + Send>;
 
 struct MainService {
     static_: Static,
@@ -29,18 +33,21 @@ impl MainService {
     }
 }
 
-impl Service for MainService {
-    type Request = Request;
-    type Response = Response;
-    type Error = Error;
+impl hyper::service::Service for MainService {
+    type ReqBody = Body;
+    type ResBody = Body;
+    type Error = String;
     type Future = ResponseFuture;
 
-    fn call(&self, req: Request) -> Self::Future {
-        if req.path() == "/" {
-            let res = Response::new()
-                .with_status(hyper::StatusCode::MovedPermanently)
-                .with_header(hyper::header::Location::new("/hyper_staticfile/"));
-            Box::new(future::ok(res))
+    fn call(&mut self, req: Request) -> ResponseFuture {
+        if req.uri().path() == "/" {
+            Box::new(future::result(
+                ResponseBuilder::new()
+                    .status(StatusCode::MOVED_PERMANENTLY)
+                    .header(header::LOCATION, "/hyper_staticfile/")
+                    .body(Body::empty())
+                    .map_err(|e| e.to_string())
+            ))
         } else {
             self.static_.call(req)
         }
@@ -48,9 +55,10 @@ impl Service for MainService {
 }
 
 fn main() {
-    let addr = "127.0.0.1:3000".parse().unwrap();
-    let server = Http::new().bind(&addr, || Ok(MainService::new())).unwrap();
-    println!("Doc server running on http://localhost:3000/");
-
-    server.run().unwrap();
+    let addr = ([127, 0, 0, 1], 3000).into();
+    let server = hyper::Server::bind(&addr)
+        .serve(|| future::ok::<_, String>(MainService::new()))
+        .map_err(|e| eprintln!("server error: {}", e));
+    eprintln!("Doc server running on http://{}/", addr);
+    hyper::rt::run(server);
 }
