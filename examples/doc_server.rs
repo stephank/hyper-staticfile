@@ -8,19 +8,42 @@ extern crate hyper_staticfile;
 // Run `cargo doc && cargo run --example doc_server`, then
 // point your browser to http://localhost:3000/
 
-use std::path::Path;
-
-use futures::{Future, future};
-
-use http::{StatusCode, header};
+use futures::{Async::*, Future, Poll, future};
 use http::response::Builder as ResponseBuilder;
+use http::{Request, Response, StatusCode, header};
 use hyper::Body;
-use hyper_staticfile::Static;
+use hyper_staticfile::{Static, StaticFuture};
+use std::path::Path;
+use std::io::Error;
 
-type Request = http::Request<Body>;
-type Response = http::Response<Body>;
-type ResponseFuture = Box<Future<Item=Response, Error=String> + Send>;
+/// Future returned from `MainService`.
+enum MainFuture {
+    Root,
+    Static(StaticFuture<Body>),
+}
 
+impl Future for MainFuture {
+    type Item = Response<Body>;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        match *self {
+            MainFuture::Root => {
+                let res = ResponseBuilder::new()
+                    .status(StatusCode::MOVED_PERMANENTLY)
+                    .header(header::LOCATION, "/hyper_staticfile/")
+                    .body(Body::empty())
+                    .expect("unable to build response");
+                Ok(Ready(res))
+            },
+            MainFuture::Static(ref mut future) => {
+                future.poll()
+            }
+        }
+    }
+}
+
+/// Hyper `Service` implementation that serves all requests.
 struct MainService {
     static_: Static,
 }
@@ -36,28 +59,23 @@ impl MainService {
 impl hyper::service::Service for MainService {
     type ReqBody = Body;
     type ResBody = Body;
-    type Error = String;
-    type Future = ResponseFuture;
+    type Error = Error;
+    type Future = MainFuture;
 
-    fn call(&mut self, req: Request) -> ResponseFuture {
+    fn call(&mut self, req: Request<Body>) -> MainFuture {
         if req.uri().path() == "/" {
-            Box::new(future::result(
-                ResponseBuilder::new()
-                    .status(StatusCode::MOVED_PERMANENTLY)
-                    .header(header::LOCATION, "/hyper_staticfile/")
-                    .body(Body::empty())
-                    .map_err(|e| e.to_string())
-            ))
+            MainFuture::Root
         } else {
-            self.static_.call(req)
+            MainFuture::Static(self.static_.serve(req))
         }
     }
 }
 
+/// Application entry point.
 fn main() {
     let addr = ([127, 0, 0, 1], 3000).into();
     let server = hyper::Server::bind(&addr)
-        .serve(|| future::ok::<_, String>(MainService::new()))
+        .serve(|| future::ok::<_, Error>(MainService::new()))
         .map_err(|e| eprintln!("server error: {}", e));
     eprintln!("Doc server running on http://{}/", addr);
     hyper::rt::run(server);

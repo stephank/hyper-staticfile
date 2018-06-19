@@ -5,13 +5,18 @@
 //! Static file-serving for [Hyper 0.12](https://github.com/hyperium/hyper).
 
 extern crate chrono;
+#[macro_use]
 extern crate futures;
 extern crate http;
 extern crate hyper;
 extern crate tokio;
 extern crate url;
 
-mod requested_path;
-mod static_service;
+mod resolve;
+mod response_builder;
+mod service;
+mod util;
 
-pub use static_service::Static;
+pub use resolve::*;
+pub use response_builder::*;
+pub use service::*;

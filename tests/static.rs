@@ -10,16 +10,10 @@ use std::{fs, str};
 use std::io::Write;
 use chrono::{Duration, Utc};
 use futures::{Future, Stream, future};
-use http::{StatusCode, header};
-use http::request::Builder as RequestBuilder;
-use hyper::Body;
-use hyper::service::Service;
-use hyper_staticfile::Static;
+use http::{Request, StatusCode, header};
+use hyper_staticfile::{Static, StaticFuture};
 use tempdir::TempDir;
 
-type Request = http::Request<Body>;
-type Response = http::Response<Body>;
-type ResponseFuture = Box<Future<Item=Response, Error=String> + Send>;
 type EmptyFuture = Box<Future<Item=(), Error=()> + Send + 'static>;
 
 struct Harness {
@@ -37,23 +31,23 @@ impl Harness {
                 .expect("failed to write fixtures");
         }
 
-        let static_ = Static::new(dir.path().clone())
-            .with_cache_headers(3600);
+        let mut static_ = Static::new(dir.path().clone());
+        static_.cache_headers(Some(3600));
 
         tokio::run(future::lazy(move || {
             f(Harness { static_ })
         }));
     }
 
-    fn request(&mut self, req: Request) -> ResponseFuture {
-        self.static_.call(req)
+    fn request<B>(&mut self, req: Request<B>) -> StaticFuture<B> {
+        self.static_.serve(req)
     }
 
-    fn get(&mut self, path: &str) -> ResponseFuture {
-        let req = RequestBuilder::new()
+    fn get(&mut self, path: &str) -> StaticFuture<()> {
+        let req = Request::builder()
             .uri(path)
-            .body(Body::empty())
-            .unwrap();
+            .body(())
+            .expect("unable to build request");
         self.request(req)
     }
 }
@@ -63,7 +57,7 @@ fn serves_non_default_file_from_absolute_root_path() {
     Harness::run(vec![
         ("file1.html", "this is file1")
     ], |mut harness| {
-        let f = harness.get("/file1.html")
+        let f = harness.get("/file1.html").map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is file1");
@@ -79,7 +73,7 @@ fn serves_default_file_from_absolute_root_path() {
     Harness::run(vec![
         ("index.html", "this is index")
     ], |mut harness| {
-        let f = harness.get("/index.html")
+        let f = harness.get("/index.html").map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is index");
@@ -93,7 +87,7 @@ fn serves_default_file_from_absolute_root_path() {
 #[test]
 fn returns_404_if_file_not_found() {
     Harness::run(vec![], |mut harness| {
-        let f = harness.get("/")
+        let f = harness.get("/").map_err(|e| e.to_string())
             .and_then(|res|  {
                 assert_eq!(res.status(), StatusCode::NOT_FOUND);
                 future::ok(())
@@ -108,7 +102,7 @@ fn redirects_if_trailing_slash_is_missing() {
     Harness::run(vec![
         ("dir/index.html", "this is index"),
     ], |mut harness| {
-        let f = harness.get("/dir")
+        let f = harness.get("/dir").map_err(|e| e.to_string())
             .and_then(|res|  {
                 assert_eq!(res.status(), StatusCode::MOVED_PERMANENTLY);
 
@@ -127,7 +121,7 @@ fn decodes_percent_notation() {
     Harness::run(vec![
         ("has space.html", "file with funky chars")
     ], |mut harness| {
-        let f = harness.get("/has%20space.html")
+        let f = harness.get("/has%20space.html").map_err(|e| e.to_string())
             .and_then(|res| {
                 res.into_body().concat2().map_err(|e| e.to_string())
             })
@@ -145,7 +139,7 @@ fn normalizes_path() {
     Harness::run(vec![
         ("index.html", "this is index")
     ], |mut harness| {
-        let f = harness.get("/xxx/../index.html")
+        let f = harness.get("/xxx/../index.html").map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is index");
@@ -161,7 +155,7 @@ fn normalizes_percent_encoded_path() {
     Harness::run(vec![
         ("file1.html", "this is file1")
     ], |mut harness| {
-        let f = harness.get("/xxx/..%2ffile1.html")
+        let f = harness.get("/xxx/..%2ffile1.html").map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is file1");
@@ -177,7 +171,7 @@ fn prevents_from_escaping_root() {
     Harness::run(vec![
         ("file1.html", "this is file1")
     ], |mut harness| {
-        let f1 = harness.get("/../file1.html")
+        let f1 = harness.get("/../file1.html").map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is file1");
@@ -185,7 +179,7 @@ fn prevents_from_escaping_root() {
             })
             .map_err(|err| panic!("{}", err));
 
-        let f2 = harness.get("/..%2ffile1.html")
+        let f2 = harness.get("/..%2ffile1.html").map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is file1");
@@ -193,7 +187,7 @@ fn prevents_from_escaping_root() {
             })
             .map_err(|err| panic!("{}", err));
 
-        let f3 = harness.get("/xxx/..%2f..%2ffile1.html")
+        let f3 = harness.get("/xxx/..%2f..%2ffile1.html").map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is file1");
@@ -213,7 +207,7 @@ fn sends_headers() {
     Harness::run(vec![
         ("file1.html", "this is file1")
     ], |mut harness| {
-        let f = harness.get("/file1.html")
+        let f = harness.get("/file1.html").map_err(|e| e.to_string())
             .and_then(|res| {
                 assert_eq!(res.status(), StatusCode::OK);
                 assert_eq!(res.headers().get(header::CONTENT_LENGTH).unwrap(), "13");
@@ -237,12 +231,12 @@ fn serves_file_with_old_if_modified_since() {
         ("file1.html", "this is file1")
     ], |mut harness| {
         let if_modified = Utc::now() - Duration::seconds(3600);
-        let req = RequestBuilder::new()
+        let req = Request::builder()
             .uri("/file1.html")
             .header(header::IF_MODIFIED_SINCE, if_modified.to_rfc2822().as_str())
-            .body(Body::empty())
-            .unwrap();
-        let f = harness.request(req)
+            .body(())
+            .expect("unable to build request");
+        let f = harness.request(req).map_err(|e| e.to_string())
             .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
             .and_then(|body| {
                 assert_eq!(str::from_utf8(&body).unwrap(), "this is file1");
@@ -259,12 +253,12 @@ fn serves_file_with_new_if_modified_since() {
         ("file1.html", "this is file1")
     ], |mut harness| {
         let if_modified = Utc::now() + Duration::seconds(3600);
-        let req = RequestBuilder::new()
+        let req = Request::builder()
             .uri("/file1.html")
             .header(header::IF_MODIFIED_SINCE, if_modified.to_rfc2822().as_str())
-            .body(Body::empty())
-            .unwrap();
-        let f = harness.request(req)
+            .body(())
+            .expect("unable to build request");
+        let f = harness.request(req).map_err(|e| e.to_string())
             .and_then(|res| {
                 assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
                 future::ok(())
