@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use tokio::fs::File;
 
 /// The result of `resolve`.
+///
+/// Covers all the possible 'normal' scenarios encountered when serving static files.
 #[derive(Debug)]
 pub enum ResolveResult {
     /// The request was not `GET` or `HEAD` request,
@@ -117,6 +119,15 @@ impl Future for ResolveFuture {
 }
 
 /// Resolve the request by trying to find the file in the given root.
+///
+/// This root may be absolute or relative. The request is mapped onto the filesystem by appending
+/// their URL path to the root path. If the filesystem path corresponds to a regular file, the
+/// service will attempt to serve it. Otherwise, if the path corresponds to a directory containing
+/// an `index.html`, the service will attempt to serve that instead.
+///
+/// The returned future may error for unexpected IO errors, passing on the `std::io::Error`.
+/// Certain expected IO errors are handled, though, and simply reflected in the result. These are
+/// `NotFound` and `PermissionDenied`.
 pub fn resolve<B, P: AsRef<Path>>(root: P, req: &Request<B>) -> ResolveFuture {
     // Handle only `GET`/`HEAD` and absolute paths.
     match *req.method() {

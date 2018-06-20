@@ -6,18 +6,30 @@ use std::fs::Metadata;
 use super::FileChunkStream;
 use tokio::fs::File;
 
-/// Utility to build responses for serving a static file.
-#[derive(Default)]
+/// Utility to build responses for serving a `tokio::fs::File`.
+///
+/// This struct allows direct access to its fields, but these fields are typically initialized by
+/// the accessors, using the builder pattern. The fields are basically a bunch of settings that
+/// determine the response details.
+#[derive(Clone,Debug,Default)]
 pub struct FileResponseBuilder {
+    /// Whether to send cache headers, and what lifespan to indicate.
     pub cache_headers: Option<u32>,
+    /// Whether this is a `HEAD` request, with no response body.
     pub is_head: bool,
+    /// The parsed value of the `If-Modified-Since` request header.
     pub if_modified_since: Option<DateTime<LocalTz>>,
 }
 
 impl FileResponseBuilder {
+    /// Create a new builder with a default configuration.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Create a new builder for the given request.
     pub fn from_request<B>(req: &Request<B>) -> Self {
-        let mut builder = Self::default();
+        let mut builder = Self::new();
         builder.method(req.method());
         builder.if_modified_since_header(req.headers().get(header::IF_MODIFIED_SINCE));
         builder

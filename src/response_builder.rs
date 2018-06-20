@@ -4,7 +4,11 @@ use http::response::Builder as HttpResponseBuilder;
 use http::{Request, Response, Result, StatusCode, header};
 use hyper::Body;
 
-/// Utility to build the default response for a resolved request.
+/// Utility to build the default response for a `resolve` result.
+///
+/// This struct allows direct access to its fields, but these fields are typically initialized by
+/// the accessors, using the builder pattern. The fields are basically a bunch of settings that
+/// determine the response details.
 #[derive(Clone,Debug,Default)]
 pub struct ResponseBuilder {
     /// Whether to send cache headers, and what lifespan to indicate.
@@ -12,7 +16,7 @@ pub struct ResponseBuilder {
 }
 
 impl ResponseBuilder {
-    /// Create a new response builder with a default configuration.
+    /// Create a new builder with a default configuration.
     pub fn new() -> Self {
         Self::default()
     }
@@ -24,6 +28,9 @@ impl ResponseBuilder {
     }
 
     /// Build a response for the given request and `resolve` result.
+    ///
+    /// This function may error if it response could not be constructed, but this should be a
+    /// seldom occurrence.
     pub fn build<B>(&self, req: &Request<B>, result: ResolveResult) -> Result<Response<Body>> {
         match result {
             ResolveResult::MethodNotMatched => {

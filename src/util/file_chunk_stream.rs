@@ -7,13 +7,14 @@ use tokio::io::AsyncRead;
 
 const BUF_SIZE: usize = 8 * 1024;
 
-/// Wrap a File into a stream of chunks.
+/// Wraps a `tokio::fs::File`, and implements a stream of `hyper::Chunk`s.
 pub struct FileChunkStream {
     file: File,
     buf: Box<[u8; BUF_SIZE]>,
 }
 
 impl FileChunkStream {
+    /// Create a new stream from the given file.
     pub fn new(file: File) -> FileChunkStream {
         let buf = Box::new(unsafe { mem::uninitialized() });
         FileChunkStream { file, buf }

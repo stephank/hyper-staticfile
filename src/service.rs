@@ -29,16 +29,22 @@ impl<B> Future for StaticFuture<B> {
     }
 }
 
-/// A Hyper service implementing static file serving.
+/// High-level interface for serving static files.
 ///
-/// This service serves files from a single filesystem path, which may be absolute or relative.
-/// Incoming requests are mapped onto the filesystem by appending their URL path to the service
-/// root path. If the filesystem path corresponds to a regular file, the service will attempt to
-/// serve it. Otherwise, if the path corresponds to a directory containing an `index.html`,
-/// the service will attempt to serve that instead.
+/// This struct serves files from a single root path, which may be absolute or relative. The
+/// request is mapped onto the filesystem by appending their URL path to the root path. If the
+/// filesystem path corresponds to a regular file, the service will attempt to serve it. Otherwise,
+/// if the path corresponds to a directory containing an `index.html`, the service will attempt to
+/// serve that instead.
+///
+/// This struct allows direct access to its fields, but these fields are typically initialized by
+/// the accessors, using the builder pattern. The fields are basically a bunch of settings that
+/// determine the response details.
+///
+/// This struct also implements the `hyper::Service` trait, which simply wraps `Static::serve`.
 #[derive(Clone)]
 pub struct Static {
-    /// The path this service is serving files from.
+    /// The root directory path to serve files from.
     pub root: PathBuf,
     /// Whether to send cache headers, and what lifespan to indicate.
     pub cache_headers: Option<u32>,

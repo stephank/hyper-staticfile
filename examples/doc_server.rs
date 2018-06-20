@@ -3,7 +3,7 @@ extern crate http;
 extern crate hyper;
 extern crate hyper_staticfile;
 
-// This example serves the docs from target/doc/hyper_staticfile at /doc/
+// This example serves the docs from `target/doc/`.
 //
 // Run `cargo doc && cargo run --example doc_server`, then
 // point your browser to http://localhost:3000/
