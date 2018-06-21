@@ -6,7 +6,7 @@ authors = [
   "Jonathan Reem <jonathan.reem@gmail.com>",
   "Stéphan Kochen <stephan@kochen.nl>",
 ]
-description = "Static file serving for Hyper 0.11"
+description = "Static file serving for Hyper 0.12"
 repository = "https://github.com/stephank/hyper-staticfile"
 license = "MIT"
 readme = "README.md"
@@ -15,9 +15,11 @@ keywords = ["hyper", "web", "http", "file", "static"]
 categories = ["web-programming::http-server"]
 
 [dependencies]
+chrono = "0.4.2"
 futures = "0.1.21"
-hyper = "0.11.25"
-tokio = "0.1.5"
+http = "0.1.5"
+hyper = "0.12.1"
+tokio = "0.1.7"
 url = "1.7.0"
 
 [dev-dependencies]
