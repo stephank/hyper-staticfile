@@ -2,13 +2,13 @@ use futures::{Async::*, Future, Poll};
 use std::fs::Metadata;
 use std::io::Error;
 use std::path::PathBuf;
-use tokio::fs::{File, metadata};
+use tokio::fs::{File, metadata, file::OpenFuture};
 use tokio_fs::MetadataFuture;
 
 /// State of `open_with_metadata` as it progresses.
 enum OpenWithMetadataState {
     /// Wait for file to open.
-    WaitOpen,
+    WaitOpen(OpenFuture<PathBuf>),
     /// Wait for metadata on the file.
     WaitMetadata(MetadataFuture<PathBuf>),
     /// Finished.
@@ -19,7 +19,7 @@ enum OpenWithMetadataState {
 pub struct OpenWithMetadataFuture {
     /// Current state of this future.
     state: OpenWithMetadataState,
-    /// path of file to load
+    /// Path of file to load.
     path: PathBuf,
     /// Resulting file handle.
     file: Option<File>,
@@ -36,12 +36,13 @@ impl Future for OpenWithMetadataFuture {
             self.state = match self.state {
                 OpenWithMetadataState::WaitMetadata(ref mut future) => {
                     self.metadata = Some(try_ready!(future.poll()));
-                    OpenWithMetadataState::WaitOpen
-                },
-                OpenWithMetadataState::WaitOpen => {
-                    if self.metadata.clone().expect("Could not read file metadata").is_file() {
-                        self.file = Some(try_ready!(File::open(self.path.clone()).poll()));
+                    match self.metadata.clone().expect("Could not read file metadata").is_file() {
+                        true => OpenWithMetadataState::WaitOpen(File::open(self.path.clone())),
+                        false => OpenWithMetadataState::Done,
                     }
+                },
+                OpenWithMetadataState::WaitOpen(ref mut future) => {
+                    self.file = Some(try_ready!(future.poll()));
                     OpenWithMetadataState::Done
                 },
                 OpenWithMetadataState::Done => {
