@@ -39,7 +39,7 @@ impl Future for OpenWithMetadataFuture {
                     OpenWithMetadataState::WaitOpen
                 },
                 OpenWithMetadataState::WaitOpen => {
-                    if self.metadata.clone().unwrap().is_file() {
+                    if self.metadata.clone().expect("Could not read file metadata").is_file() {
                         self.file = Some(try_ready!(File::open(self.path.clone()).poll()));
                     }
                     OpenWithMetadataState::Done
