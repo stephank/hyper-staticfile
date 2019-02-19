@@ -90,7 +90,7 @@ impl Future for ResolveFuture {
 
                     // If not a directory, serve this file.
                     if !self.is_dir_request {
-                        return Ok(Ready(ResolveResult::Found(file, metadata)));
+                        return Ok(Ready(ResolveResult::Found(file.expect("invalid state"), metadata)));
                     }
 
                     // Resolve the directory index.
@@ -111,7 +111,7 @@ impl Future for ResolveFuture {
                     }
 
                     // Serve this file.
-                    return Ok(Ready(ResolveResult::Found(file, metadata)));
+                    return Ok(Ready(ResolveResult::Found(file.expect("invalid state"), metadata)));
                 },
             }
         }

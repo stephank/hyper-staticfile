@@ -20,6 +20,7 @@ futures = "0.1.21"
 http = "0.1.5"
 hyper = "0.12.1"
 tokio = "0.1.7"
+tokio-fs = "0.1.5"
 url = "1.7.0"
 
 [dev-dependencies]

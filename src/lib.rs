@@ -89,6 +89,7 @@ extern crate futures;
 extern crate http;
 extern crate hyper;
 extern crate tokio;
+extern crate tokio_fs;
 extern crate url;
 
 mod resolve;

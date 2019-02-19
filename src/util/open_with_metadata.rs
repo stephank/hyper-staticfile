@@ -2,14 +2,15 @@ use futures::{Async::*, Future, Poll};
 use std::fs::Metadata;
 use std::io::Error;
 use std::path::PathBuf;
-use tokio::fs::{File, file::OpenFuture};
+use tokio::fs::{File, metadata};
+use tokio_fs::MetadataFuture;
 
 /// State of `open_with_metadata` as it progresses.
 enum OpenWithMetadataState {
     /// Wait for file to open.
-    WaitOpen(OpenFuture<PathBuf>),
+    WaitOpen,
     /// Wait for metadata on the file.
-    WaitMetadata,
+    WaitMetadata(MetadataFuture<PathBuf>),
     /// Finished.
     Done,
 }
@@ -18,6 +19,8 @@ enum OpenWithMetadataState {
 pub struct OpenWithMetadataFuture {
     /// Current state of this future.
     state: OpenWithMetadataState,
+    /// path of file to load
+    path: PathBuf,
     /// Resulting file handle.
     file: Option<File>,
     /// Resulting file metadata.
@@ -25,23 +28,24 @@ pub struct OpenWithMetadataFuture {
 }
 
 impl Future for OpenWithMetadataFuture {
-    type Item = (File, Metadata);
+    type Item = (Option<File>, Metadata);
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
             self.state = match self.state {
-                OpenWithMetadataState::WaitOpen(ref mut future) => {
-                    self.file = Some(try_ready!(future.poll()));
-                    OpenWithMetadataState::WaitMetadata
+                OpenWithMetadataState::WaitMetadata(ref mut future) => {
+                    self.metadata = Some(try_ready!(future.poll()));
+                    OpenWithMetadataState::WaitOpen
                 },
-                OpenWithMetadataState::WaitMetadata => {
-                    let file = self.file.as_mut().expect("invalid state");
-                    self.metadata = Some(try_ready!(file.poll_metadata()));
+                OpenWithMetadataState::WaitOpen => {
+                    if self.metadata.clone().unwrap().is_file() {
+                        self.file = Some(try_ready!(File::open(self.path.clone()).poll()));
+                    }
                     OpenWithMetadataState::Done
                 },
                 OpenWithMetadataState::Done => {
-                    let file = self.file.take().expect("invalid state");
+                    let file = self.file.take();
                     let metadata = self.metadata.take().expect("invalid state");
                     return Ok(Ready((file, metadata)));
                 },
@@ -52,6 +56,6 @@ impl Future for OpenWithMetadataFuture {
 
 /// Open a file and get metadata.
 pub fn open_with_metadata(path: PathBuf) -> OpenWithMetadataFuture {
-    let state = OpenWithMetadataState::WaitOpen(File::open(path));
-    OpenWithMetadataFuture { state, file: None, metadata: None }
+    let state = OpenWithMetadataState::WaitMetadata(metadata(path.clone()));
+    OpenWithMetadataFuture { state, path, file: None, metadata: None }
 }
