@@ -91,6 +91,9 @@ extern crate hyper;
 extern crate tokio;
 extern crate url;
 
+#[cfg(windows)]
+extern crate winapi;
+
 mod resolve;
 mod response_builder;
 mod service;

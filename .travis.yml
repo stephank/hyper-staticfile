@@ -2,3 +2,6 @@ language: rust
 rust:
   - stable
   - nightly
+os:
+  - windows
+  - linux

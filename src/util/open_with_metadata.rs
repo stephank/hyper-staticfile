@@ -1,8 +1,13 @@
 use futures::{Async::*, Future, Poll};
-use std::fs::Metadata;
+use std::fs::{Metadata, OpenOptions as StdOpenOptions};
 use std::io::Error;
 use std::path::PathBuf;
-use tokio::fs::{File, file::OpenFuture};
+use tokio::fs::{File, OpenOptions, file::OpenFuture};
+
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
+#[cfg(windows)]
+use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
 
 /// State of `open_with_metadata` as it progresses.
 enum OpenWithMetadataState {
@@ -52,6 +57,13 @@ impl Future for OpenWithMetadataFuture {
 
 /// Open a file and get metadata.
 pub fn open_with_metadata(path: PathBuf) -> OpenWithMetadataFuture {
-    let state = OpenWithMetadataState::WaitOpen(File::open(path));
+    let mut opts = StdOpenOptions::new();
+    opts.read(true);
+
+    // On Windows, we need to set this flag to be able to open directories.
+    #[cfg(windows)]
+    opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+
+    let state = OpenWithMetadataState::WaitOpen(OpenOptions::from(opts).open(path));
     OpenWithMetadataFuture { state, file: None, metadata: None }
 }
