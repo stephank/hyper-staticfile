@@ -21,6 +21,7 @@ http = "0.1.5"
 hyper = "0.12.1"
 tokio = "0.1.7"
 url = "1.7.0"
+mime_guess = "1.8.7"
 
 [dev-dependencies]
 tempdir = "0.3.7"
