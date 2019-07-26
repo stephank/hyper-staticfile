@@ -88,6 +88,7 @@ extern crate chrono;
 extern crate futures;
 extern crate http;
 extern crate hyper;
+extern crate mime_guess;
 extern crate tokio;
 extern crate url;
 

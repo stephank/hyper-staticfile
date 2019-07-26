@@ -1,11 +1,12 @@
-use ::util::{open_with_metadata, OpenWithMetadataFuture, RequestedPath};
 use futures::{Async::*, Future, Poll};
 use http::{Method, Request};
+use mime_guess::Mime;
 use std::convert::AsRef;
 use std::fs::Metadata;
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
+use util::{open_with_metadata, OpenWithMetadataFuture, RequestedPath};
 
 /// The result of `resolve`.
 ///
@@ -23,7 +24,7 @@ pub enum ResolveResult {
     /// A directory was requested as a file.
     IsDirectory,
     /// The requested file was found.
-    Found(File, Metadata),
+    Found(File, Metadata, Mime),
 }
 
 /// State of `resolve` as it progresses.
@@ -66,10 +67,10 @@ impl Future for ResolveFuture {
             self.state = match self.state {
                 ResolveState::MethodNotMatched => {
                     return Ok(Ready(ResolveResult::MethodNotMatched));
-                },
+                }
                 ResolveState::UriNotMatched => {
                     return Ok(Ready(ResolveResult::UriNotMatched));
-                },
+                }
                 ResolveState::WaitOpen(ref mut future) => {
                     let (file, metadata) = match future.poll() {
                         Ok(Ready(pair)) => pair,
@@ -90,14 +91,17 @@ impl Future for ResolveFuture {
 
                     // If not a directory, serve this file.
                     if !self.is_dir_request {
-                        return Ok(Ready(ResolveResult::Found(file, metadata)));
+                        let mime = mime_guess::guess_mime_type(
+                            self.full_path.as_ref().expect("invalid state"),
+                        );
+                        return Ok(Ready(ResolveResult::Found(file, metadata, mime)));
                     }
 
                     // Resolve the directory index.
                     let mut full_path = self.full_path.take().expect("invalid state");
                     full_path.push("index.html");
                     ResolveState::WaitOpenIndex(open_with_metadata(full_path))
-                },
+                }
                 ResolveState::WaitOpenIndex(ref mut future) => {
                     let (file, metadata) = match future.poll() {
                         Ok(Ready(pair)) => pair,
@@ -111,8 +115,11 @@ impl Future for ResolveFuture {
                     }
 
                     // Serve this file.
-                    return Ok(Ready(ResolveResult::Found(file, metadata)));
-                },
+                    let mime = mime_guess::guess_mime_type(
+                        self.full_path.as_ref().expect("invalid state"),
+                    );
+                    return Ok(Ready(ResolveResult::Found(file, metadata, mime)));
+                }
             }
         }
     }
@@ -131,14 +138,14 @@ impl Future for ResolveFuture {
 pub fn resolve<B, P: AsRef<Path>>(root: P, req: &Request<B>) -> ResolveFuture {
     // Handle only `GET`/`HEAD` and absolute paths.
     match *req.method() {
-        Method::HEAD | Method::GET => {},
+        Method::HEAD | Method::GET => {}
         _ => {
             return ResolveFuture {
                 full_path: None,
                 is_dir_request: false,
                 state: ResolveState::MethodNotMatched,
             };
-        },
+        }
     }
 
     // Handle only simple path requests.
@@ -150,10 +157,16 @@ pub fn resolve<B, P: AsRef<Path>>(root: P, req: &Request<B>) -> ResolveFuture {
         };
     }
 
-    let RequestedPath { full_path, is_dir_request } =
-        RequestedPath::resolve(root.as_ref(), req.uri().path());
+    let RequestedPath {
+        full_path,
+        is_dir_request,
+    } = RequestedPath::resolve(root.as_ref(), req.uri().path());
 
     let state = ResolveState::WaitOpen(open_with_metadata(full_path.clone()));
     let full_path = Some(full_path);
-    ResolveFuture { full_path, is_dir_request, state }
+    ResolveFuture {
+        full_path,
+        is_dir_request,
+        state,
+    }
 }
