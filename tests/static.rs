@@ -85,6 +85,22 @@ fn serves_default_file_from_absolute_root_path() {
 }
 
 #[test]
+fn serves_default_file_from_empty_root_path() {
+    Harness::run(vec![("index.html", "this is index")], |mut harness| {
+        let f = harness
+            .get("/")
+            .map_err(|e| e.to_string())
+            .and_then(|res| res.into_body().concat2().map_err(|e| e.to_string()))
+            .and_then(|body| {
+                assert_eq!(str::from_utf8(&body).unwrap(), "this is index");
+                future::ok(())
+            })
+            .map_err(|err| panic!("{}", err));
+        Box::new(f)
+    });
+}
+
+#[test]
 fn returns_404_if_file_not_found() {
     Harness::run(vec![], |mut harness| {
         let f = harness
