@@ -98,9 +98,9 @@ impl Future for ResolveFuture {
                     }
 
                     // Resolve the directory index.
-                    let mut full_path = self.full_path.take().expect("invalid state");
+                    let full_path = self.full_path.as_mut().expect("invalid state");
                     full_path.push("index.html");
-                    ResolveState::WaitOpenIndex(open_with_metadata(full_path))
+                    ResolveState::WaitOpenIndex(open_with_metadata(full_path.to_path_buf()))
                 }
                 ResolveState::WaitOpenIndex(ref mut future) => {
                     let (file, metadata) = match future.poll() {
