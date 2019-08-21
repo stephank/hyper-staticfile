@@ -1,7 +1,6 @@
 use futures::{Async, Poll, Stream};
 use hyper::Chunk;
 use std::io::Error;
-use std::mem;
 use tokio::fs::File;
 use tokio::io::AsyncRead;
 
@@ -16,7 +15,7 @@ pub struct FileChunkStream {
 impl FileChunkStream {
     /// Create a new stream from the given file.
     pub fn new(file: File) -> FileChunkStream {
-        let buf = Box::new(unsafe { mem::uninitialized() });
+        let buf = Box::new([0; BUF_SIZE]);
         FileChunkStream { file, buf }
     }
 }
