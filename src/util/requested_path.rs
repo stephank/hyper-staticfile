@@ -1,14 +1,17 @@
-use std::path::{Component, PathBuf, Path};
+use std::path::{Component, Path, PathBuf};
 use url::percent_encoding::percent_decode;
 
 #[inline]
 fn decode_percents(string: &str) -> String {
-    percent_decode(string.as_bytes()).decode_utf8().unwrap().into_owned()
+    percent_decode(string.as_bytes())
+        .decode_utf8()
+        .unwrap()
+        .into_owned()
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
-    path.components().fold(PathBuf::new(), |mut result, p| {
-        match p {
+    path.components()
+        .fold(PathBuf::new(), |mut result, p| match p {
             Component::Normal(x) => {
                 result.push(x);
                 result
@@ -16,10 +19,9 @@ fn normalize_path(path: &Path) -> PathBuf {
             Component::ParentDir => {
                 result.pop();
                 result
-            },
-            _ => result
-        }
-    })
+            }
+            _ => result,
+        })
 }
 
 /// Resolved request path.
@@ -39,6 +41,9 @@ impl RequestedPath {
         let mut full_path = root_path.to_path_buf();
         full_path.extend(&normalize_path(&request_path));
 
-        RequestedPath { full_path, is_dir_request }
+        RequestedPath {
+            full_path,
+            is_dir_request,
+        }
     }
 }

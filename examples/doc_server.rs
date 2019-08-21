@@ -8,13 +8,13 @@ extern crate hyper_staticfile;
 // Run `cargo doc && cargo run --example doc_server`, then
 // point your browser to http://localhost:3000/
 
-use futures::{Async::*, Future, Poll, future};
+use futures::{future, Async::*, Future, Poll};
 use http::response::Builder as ResponseBuilder;
-use http::{Request, Response, StatusCode, header};
+use http::{header, Request, Response, StatusCode};
 use hyper::Body;
 use hyper_staticfile::{Static, StaticFuture};
-use std::path::Path;
 use std::io::Error;
+use std::path::Path;
 
 /// Future returned from `MainService`.
 enum MainFuture {
@@ -35,10 +35,8 @@ impl Future for MainFuture {
                     .body(Body::empty())
                     .expect("unable to build response");
                 Ok(Ready(res))
-            },
-            MainFuture::Static(ref mut future) => {
-                future.poll()
             }
+            MainFuture::Static(ref mut future) => future.poll(),
         }
     }
 }

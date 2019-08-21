@@ -1,9 +1,9 @@
-use chrono::{DateTime, SubsecRound, offset::Local as LocalTz};
+use super::FileChunkStream;
+use chrono::{offset::Local as LocalTz, DateTime, SubsecRound};
 use http::response::Builder as ResponseBuilder;
-use http::{Method, Request, Response, Result, StatusCode, header};
+use http::{header, Method, Request, Response, Result, StatusCode};
 use hyper::Body;
 use std::fs::Metadata;
-use super::FileChunkStream;
 use tokio::fs::File;
 
 /// Utility to build responses for serving a `tokio::fs::File`.
@@ -11,7 +11,7 @@ use tokio::fs::File;
 /// This struct allows direct access to its fields, but these fields are typically initialized by
 /// the accessors, using the builder pattern. The fields are basically a bunch of settings that
 /// determine the response details.
-#[derive(Clone,Debug,Default)]
+#[derive(Clone, Debug, Default)]
 pub struct FileResponseBuilder {
     /// Whether to send cache headers, and what lifespan to indicate.
     pub cache_headers: Option<u32>,
@@ -71,20 +71,33 @@ impl FileResponseBuilder {
                     return ResponseBuilder::new()
                         .status(StatusCode::NOT_MODIFIED)
                         .body(Body::empty())
-                },
-                _ => {},
+                }
+                _ => {}
             }
 
             res.header(header::LAST_MODIFIED, modified.to_rfc2822().as_str());
-            res.header(header::ETAG, format!("W/\"{0:x}-{1:x}.{2:x}\"",
-                metadata.len(), modified.timestamp(), modified.timestamp_subsec_nanos()).as_str());
+            res.header(
+                header::ETAG,
+                format!(
+                    "W/\"{0:x}-{1:x}.{2:x}\"",
+                    metadata.len(),
+                    modified.timestamp(),
+                    modified.timestamp_subsec_nanos()
+                )
+                .as_str(),
+            );
         }
 
         // Build remaining headers.
-        res.header(header::CONTENT_LENGTH, format!("{}", metadata.len()).as_str());
+        res.header(
+            header::CONTENT_LENGTH,
+            format!("{}", metadata.len()).as_str(),
+        );
         if let Some(seconds) = self.cache_headers {
-            res.header(header::CACHE_CONTROL,
-                format!("public, max-age={}", seconds).as_str());
+            res.header(
+                header::CACHE_CONTROL,
+                format!("public, max-age={}", seconds).as_str(),
+            );
         }
 
         // Stream the body.

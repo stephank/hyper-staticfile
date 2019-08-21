@@ -1,9 +1,9 @@
-use ::{ResolveFuture, ResponseBuilder, resolve};
 use futures::{Async::*, Future, Poll};
 use http::{Request, Response};
-use hyper::{Body, service::Service};
+use hyper::{service::Service, Body};
 use std::io::Error;
 use std::path::PathBuf;
+use {resolve, ResolveFuture, ResponseBuilder};
 
 /// Future returned by `Static::serve`.
 pub struct StaticFuture<B> {
@@ -56,7 +56,10 @@ impl Static {
     /// If `Path::new("")` is given, files will be served from the current directory.
     pub fn new<P: Into<PathBuf>>(root: P) -> Self {
         let root = root.into();
-        Static { root, cache_headers: None }
+        Static {
+            root,
+            cache_headers: None,
+        }
     }
 
     /// Add cache headers to responses for the given lifespan.

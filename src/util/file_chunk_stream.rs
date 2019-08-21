@@ -27,18 +27,10 @@ impl Stream for FileChunkStream {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.file.poll_read(&mut self.buf[..]) {
-            Ok(Async::Ready(0)) => {
-                Ok(Async::Ready(None))
-            },
-            Ok(Async::Ready(size)) => {
-                Ok(Async::Ready(Some(self.buf[..size].to_owned().into())))
-            },
-            Ok(Async::NotReady) => {
-                Ok(Async::NotReady)
-            },
-            Err(e) => {
-                Err(e)
-            },
+            Ok(Async::Ready(0)) => Ok(Async::Ready(None)),
+            Ok(Async::Ready(size)) => Ok(Async::Ready(Some(self.buf[..size].to_owned().into()))),
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(e) => Err(e),
         }
     }
 }

@@ -2,7 +2,7 @@ use futures::{Async::*, Future, Poll};
 use std::fs::{Metadata, OpenOptions as StdOpenOptions};
 use std::io::Error;
 use std::path::PathBuf;
-use tokio::fs::{File, OpenOptions, file::OpenFuture};
+use tokio::fs::{file::OpenFuture, File, OpenOptions};
 
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
@@ -39,17 +39,17 @@ impl Future for OpenWithMetadataFuture {
                 OpenWithMetadataState::WaitOpen(ref mut future) => {
                     self.file = Some(try_ready!(future.poll()));
                     OpenWithMetadataState::WaitMetadata
-                },
+                }
                 OpenWithMetadataState::WaitMetadata => {
                     let file = self.file.as_mut().expect("invalid state");
                     self.metadata = Some(try_ready!(file.poll_metadata()));
                     OpenWithMetadataState::Done
-                },
+                }
                 OpenWithMetadataState::Done => {
                     let file = self.file.take().expect("invalid state");
                     let metadata = self.metadata.take().expect("invalid state");
                     return Ok(Ready((file, metadata)));
-                },
+                }
             }
         }
     }
@@ -65,5 +65,9 @@ pub fn open_with_metadata(path: PathBuf) -> OpenWithMetadataFuture {
     opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
 
     let state = OpenWithMetadataState::WaitOpen(OpenOptions::from(opts).open(path));
-    OpenWithMetadataFuture { state, file: None, metadata: None }
+    OpenWithMetadataFuture {
+        state,
+        file: None,
+        metadata: None,
+    }
 }
