@@ -14,7 +14,7 @@ use std::io::Write;
 use std::{fs, str};
 use tempdir::TempDir;
 
-type EmptyFuture = Box<Future<Item = (), Error = ()> + Send + 'static>;
+type EmptyFuture = Box<dyn Future<Item = (), Error = ()> + Send + 'static>;
 
 struct Harness {
     static_: Static,
