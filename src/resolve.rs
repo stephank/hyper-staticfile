@@ -1,6 +1,6 @@
 use futures::{Async::*, Future, Poll};
 use http::{Method, Request};
-use mime_guess::Mime;
+use mime_guess::{Mime, MimeGuess};
 use std::convert::AsRef;
 use std::fs::Metadata;
 use std::io::{Error, ErrorKind};
@@ -91,9 +91,9 @@ impl Future for ResolveFuture {
 
                     // If not a directory, serve this file.
                     if !self.is_dir_request {
-                        let mime = mime_guess::guess_mime_type(
-                            self.full_path.as_ref().expect("invalid state"),
-                        );
+                        let mime =
+                            MimeGuess::from_path(self.full_path.as_ref().expect("invalid state"))
+                                .first_or_octet_stream();
                         return Ok(Ready(ResolveResult::Found(file, metadata, mime)));
                     }
 
@@ -115,9 +115,9 @@ impl Future for ResolveFuture {
                     }
 
                     // Serve this file.
-                    let mime = mime_guess::guess_mime_type(
-                        self.full_path.as_ref().expect("invalid state"),
-                    );
+                    let mime =
+                        MimeGuess::from_path(self.full_path.as_ref().expect("invalid state"))
+                            .first_or_octet_stream();
                     return Ok(Ready(ResolveResult::Found(file, metadata, mime)));
                 }
             }
