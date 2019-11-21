@@ -3,7 +3,7 @@ use http::{Request, Response};
 use hyper::{service::Service, Body};
 use std::io::Error;
 use std::path::PathBuf;
-use {resolve, ResolveFuture, ResponseBuilder};
+use crate::{resolve, ResolveFuture, ResponseBuilder};
 
 /// Future returned by `Static::serve`.
 pub struct StaticFuture<B> {

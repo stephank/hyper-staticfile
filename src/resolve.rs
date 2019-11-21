@@ -6,7 +6,7 @@ use std::fs::Metadata;
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
-use util::{open_with_metadata, OpenWithMetadataFuture, RequestedPath};
+use crate::util::{open_with_metadata, OpenWithMetadataFuture, RequestedPath};
 
 /// The result of `resolve`.
 ///

@@ -100,7 +100,7 @@ mod response_builder;
 mod service;
 mod util;
 
-pub use resolve::*;
-pub use response_builder::*;
-pub use service::*;
-pub use util::{FileChunkStream, FileResponseBuilder};
+pub use crate::resolve::*;
+pub use crate::response_builder::*;
+pub use crate::service::*;
+pub use crate::util::{FileChunkStream, FileResponseBuilder};

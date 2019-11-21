@@ -13,6 +13,7 @@ readme = "README.md"
 documentation = "https://docs.rs/hyper-staticfile"
 keywords = ["hyper", "web", "http", "file", "static"]
 categories = ["web-programming::http-server"]
+edition = "2018"
 
 [dependencies]
 chrono = "0.4.2"
