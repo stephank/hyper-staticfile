@@ -1,8 +1,8 @@
+use crate::resolve::ResolveResult;
+use crate::util::FileResponseBuilder;
 use http::response::Builder as HttpResponseBuilder;
 use http::{header, Request, Response, Result, StatusCode};
 use hyper::Body;
-use crate::resolve::ResolveResult;
-use crate::util::FileResponseBuilder;
 
 /// Utility to build the default response for a `resolve` result.
 ///

@@ -1,11 +1,9 @@
 use std::path::{Component, Path, PathBuf};
-use url::percent_encoding::percent_decode;
 
 #[inline]
 fn decode_percents(string: &str) -> String {
-    percent_decode(string.as_bytes())
-        .decode_utf8()
-        .unwrap()
+    percent_encoding::percent_decode_str(string)
+        .decode_utf8_lossy()
         .into_owned()
 }
 
@@ -34,11 +32,11 @@ pub struct RequestedPath {
 
 impl RequestedPath {
     /// Resolve the requested path to a full filesystem path, limited to the root.
-    pub fn resolve(root_path: &Path, request_path: &str) -> Self {
+    pub fn resolve(root_path: impl Into<PathBuf>, request_path: &str) -> Self {
         let is_dir_request = request_path.as_bytes().last() == Some(&b'/');
         let request_path = PathBuf::from(decode_percents(request_path));
 
-        let mut full_path = root_path.to_path_buf();
+        let mut full_path = root_path.into();
         full_path.extend(&normalize_path(&request_path));
 
         RequestedPath {

@@ -2,7 +2,7 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-//! Static file-serving for [Hyper 0.12](https://github.com/hyperium/hyper).
+//! Static file-serving for [Hyper 0.13](https://github.com/hyperium/hyper).
 //!
 //! This library exports a high-level interface `Static` for simple file-serving, and lower-level
 //! interfaces for more control over responses.
@@ -14,10 +14,7 @@
 //! trait. It can be used as:
 //!
 //! ```rust
-//! extern crate http;
-//! extern crate hyper_staticfile;
-//!
-//! // Instance of `Static`. Can be reused for multiple requests.
+//! // Instance of `Static` containing configuration.
 //! let static_ = hyper_staticfile::Static::new("my/doc/root/");
 //!
 //! // A dummy request, but normally obtained from Hyper.
@@ -25,7 +22,7 @@
 //!     .body(())
 //!     .unwrap();
 //!
-//! // Serve the request. Returns a `StaticFuture` for a response.
+//! // Serve the request. Returns a future for a `hyper::Response`.
 //! let response_future = static_.serve(request);
 //! ```
 //!
@@ -38,35 +35,33 @@
 //! same by doing something similar to the following:
 //!
 //! ```rust
-//! extern crate futures;
-//! extern crate http;
-//! extern crate hyper_staticfile;
-//!
-//! use futures::future::Future;
 //! use std::path::Path;
 //!
-//! // Document root path.
-//! let root = Path::new("my/doc/root/");
+//! #[tokio::main]
+//! async fn main() {
+//!     // Document root path.
+//!     let root = Path::new("my/doc/root/");
 //!
-//! // A dummy request, but normally obtained from Hyper.
-//! let request = http::Request::get("/foo/bar.txt")
-//!     .body(())
-//!     .unwrap();
+//!     // A dummy request, but normally obtained from Hyper.
+//!     let request = http::Request::get("/foo/bar.txt")
+//!         .body(())
+//!         .unwrap();
 //!
-//! // First, resolve the request. Returns a `ResolveFuture` for a `ResolveResult`.
-//! let resolve_future = hyper_staticfile::resolve(&root, &request);
+//!     // First, resolve the request. Returns a future for a `ResolveResult`.
+//!     let result = hyper_staticfile::resolve(&root, &request)
+//!         .await
+//!         .unwrap();
 //!
-//! // Then, build a response based on the result.
-//! // The `ResponseBuilder` is typically a short-lived, per-request instance.
-//! let response_future = resolve_future.map(move |result| {
-//!     hyper_staticfile::ResponseBuilder::new()
+//!     // Then, build a response based on the result.
+//!     // The `ResponseBuilder` is typically a short-lived, per-request instance.
+//!     let response = hyper_staticfile::ResponseBuilder::new()
 //!         .build(&request, result)
-//!         .unwrap()
-//! });
+//!         .unwrap();
+//! }
 //! ```
 //!
-//! The `resolve` function tries to find the file in the root, and returns a `ResolveFuture` for
-//! the `ResolveResult` enum, which determines what kind of response should be sent. The
+//! The `resolve` function tries to find the file in the root, and returns a future for the
+//! `ResolveResult` enum, which determines what kind of response should be sent. The
 //! `ResponseBuilder` is then used to create a default response. It holds some settings, and can be
 //! constructed using the builder pattern.
 //!
@@ -79,21 +74,9 @@
 //! and want to serve it. It takes care of basic headers, 'not modified' responses, and streaming
 //! the file in the body.
 //!
-//! Finally, there's `FileChunkStream`, which is used by `FileResponseBuilder` to stream the file.
+//! Finally, there's `FileBytesStream`, which is used by `FileResponseBuilder` to stream the file.
 //! This is a struct wrapping a `tokio::fs::File` and implementing a `futures::Stream` that
-//! produces `hyper::Chunk`s. It can be used for streaming a file in custom response.
-
-extern crate chrono;
-#[macro_use]
-extern crate futures;
-extern crate http;
-extern crate hyper;
-extern crate mime_guess;
-extern crate tokio;
-extern crate url;
-
-#[cfg(windows)]
-extern crate winapi;
+//! produces `Bytes`s. It can be used for streaming a file in custom response.
 
 mod resolve;
 mod response_builder;
@@ -103,4 +86,4 @@ mod util;
 pub use crate::resolve::*;
 pub use crate::response_builder::*;
 pub use crate::service::*;
-pub use crate::util::{FileChunkStream, FileResponseBuilder};
+pub use crate::util::{FileBytesStream, FileResponseBuilder};

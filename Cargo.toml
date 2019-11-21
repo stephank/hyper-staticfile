@@ -1,12 +1,12 @@
 [package]
 name = "hyper-staticfile"
-version = "0.4.2"
+version = "0.5.0"
 authors = [
   "Zach Pomerantz <zmp@umich.edu>",
   "Jonathan Reem <jonathan.reem@gmail.com>",
   "Stéphan Kochen <stephan@kochen.nl>",
 ]
-description = "Static file serving for Hyper 0.12"
+description = "Static file serving for Hyper 0.13"
 repository = "https://github.com/stephank/hyper-staticfile"
 license = "MIT"
 readme = "README.md"
@@ -16,13 +16,14 @@ categories = ["web-programming::http-server"]
 edition = "2018"
 
 [dependencies]
-chrono = "0.4.2"
-futures = "0.1.21"
-http = "0.1.5"
-hyper = "0.12.1"
-tokio = "0.1.7"
-url = "1.7.0"
+chrono = "0.4.10"
+futures-util = "0.3.1"
+http = "0.2.0"
+hyper = "0.13.0"
 mime_guess = "2.0.1"
+percent-encoding = "2.1.0"
+tokio = { version = "0.2.4", features = ["fs", "macros"] }
+url = "2.1.0"
 
 [dev-dependencies]
 tempdir = "0.3.7"

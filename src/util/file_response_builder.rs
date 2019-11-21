@@ -1,4 +1,4 @@
-use super::FileChunkStream;
+use super::FileBytesStream;
 use chrono::{offset::Local as LocalTz, DateTime, SubsecRound};
 use http::response::Builder as ResponseBuilder;
 use http::{header, Method, Request, Response, Result, StatusCode};
@@ -75,26 +75,27 @@ impl FileResponseBuilder {
                 _ => {}
             }
 
-            res.header(header::LAST_MODIFIED, modified.to_rfc2822().as_str());
-            res.header(
-                header::ETAG,
-                format!(
-                    "W/\"{0:x}-{1:x}.{2:x}\"",
-                    metadata.len(),
-                    modified.timestamp(),
-                    modified.timestamp_subsec_nanos()
-                )
-                .as_str(),
-            );
+            res = res
+                .header(header::LAST_MODIFIED, modified.to_rfc2822().as_str())
+                .header(
+                    header::ETAG,
+                    format!(
+                        "W/\"{0:x}-{1:x}.{2:x}\"",
+                        metadata.len(),
+                        modified.timestamp(),
+                        modified.timestamp_subsec_nanos()
+                    )
+                    .as_str(),
+                );
         }
 
         // Build remaining headers.
-        res.header(
+        res = res.header(
             header::CONTENT_LENGTH,
             format!("{}", metadata.len()).as_str(),
         );
         if let Some(seconds) = self.cache_headers {
-            res.header(
+            res = res.header(
                 header::CACHE_CONTROL,
                 format!("public, max-age={}", seconds).as_str(),
             );
@@ -104,7 +105,7 @@ impl FileResponseBuilder {
         res.body(if self.is_head {
             Body::empty()
         } else {
-            Body::wrap_stream(FileChunkStream::new(file))
+            FileBytesStream::new(file).into_body()
         })
     }
 }
