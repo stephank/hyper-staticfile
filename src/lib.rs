@@ -55,7 +55,8 @@
 //!     // Then, build a response based on the result.
 //!     // The `ResponseBuilder` is typically a short-lived, per-request instance.
 //!     let response = hyper_staticfile::ResponseBuilder::new()
-//!         .build(&request, result)
+//!         .request(&request)
+//!         .build(result)
 //!         .unwrap();
 //! }
 //! ```

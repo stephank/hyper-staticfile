@@ -55,8 +55,9 @@ impl Static {
         } = self;
         resolve(root, &request).await.map(|result| {
             ResponseBuilder::new()
+                .request(&request)
                 .cache_headers(cache_headers)
-                .build(&request, result)
+                .build(result)
                 .expect("unable to build response")
         })
     }
