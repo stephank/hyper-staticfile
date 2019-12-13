@@ -1,7 +1,7 @@
-use super::FileChunkStream;
+use super::FileBytesStream;
 use chrono::{offset::Local as LocalTz, DateTime, SubsecRound};
 use http::response::Builder as ResponseBuilder;
-use http::{header, Method, Request, Response, Result, StatusCode};
+use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode};
 use hyper::Body;
 use std::fs::Metadata;
 use tokio::fs::File;
@@ -27,12 +27,28 @@ impl FileResponseBuilder {
         Self::default()
     }
 
-    /// Create a new builder for the given request.
-    pub fn from_request<B>(req: &Request<B>) -> Self {
-        let mut builder = Self::new();
-        builder.method(req.method());
-        builder.if_modified_since_header(req.headers().get(header::IF_MODIFIED_SINCE));
-        builder
+    /// Apply parameters based on a request.
+    pub fn request<B>(&mut self, req: &Request<B>) -> &mut Self {
+        self.request_parts(req.method(), req.headers())
+    }
+
+    /// Apply parameters based on request parts.
+    pub fn request_parts(&mut self, method: &Method, headers: &HeaderMap) -> &mut Self {
+        self.request_method(method);
+        self.request_headers(headers);
+        self
+    }
+
+    /// Apply parameters based on a request method.
+    pub fn request_method(&mut self, method: &Method) -> &mut Self {
+        self.is_head = *method == Method::HEAD;
+        self
+    }
+
+    /// Apply parameters based on request headers.
+    pub fn request_headers(&mut self, headers: &HeaderMap) -> &mut Self {
+        self.if_modified_since_header(headers.get(header::IF_MODIFIED_SINCE));
+        self
     }
 
     /// Add cache headers to responses for the given lifespan.
@@ -41,9 +57,15 @@ impl FileResponseBuilder {
         self
     }
 
-    /// Build responses for the given request method.
-    pub fn method(&mut self, value: &Method) -> &mut Self {
-        self.is_head = *value == Method::HEAD;
+    /// Set whether this is a `HEAD` request, with no response body.
+    pub fn is_head(&mut self, value: bool) -> &mut Self {
+        self.is_head = value;
+        self
+    }
+
+    /// Build responses for the given `If-Modified-Since` date-time.
+    pub fn if_modified_since(&mut self, value: Option<DateTime<LocalTz>>) -> &mut Self {
+        self.if_modified_since = value;
         self
     }
 
@@ -75,26 +97,27 @@ impl FileResponseBuilder {
                 _ => {}
             }
 
-            res.header(header::LAST_MODIFIED, modified.to_rfc2822().as_str());
-            res.header(
-                header::ETAG,
-                format!(
-                    "W/\"{0:x}-{1:x}.{2:x}\"",
-                    metadata.len(),
-                    modified.timestamp(),
-                    modified.timestamp_subsec_nanos()
-                )
-                .as_str(),
-            );
+            res = res
+                .header(header::LAST_MODIFIED, modified.to_rfc2822().as_str())
+                .header(
+                    header::ETAG,
+                    format!(
+                        "W/\"{0:x}-{1:x}.{2:x}\"",
+                        metadata.len(),
+                        modified.timestamp(),
+                        modified.timestamp_subsec_nanos()
+                    )
+                    .as_str(),
+                );
         }
 
         // Build remaining headers.
-        res.header(
+        res = res.header(
             header::CONTENT_LENGTH,
             format!("{}", metadata.len()).as_str(),
         );
         if let Some(seconds) = self.cache_headers {
-            res.header(
+            res = res.header(
                 header::CACHE_CONTROL,
                 format!("public, max-age={}", seconds).as_str(),
             );
@@ -104,7 +127,7 @@ impl FileResponseBuilder {
         res.body(if self.is_head {
             Body::empty()
         } else {
-            Body::wrap_stream(FileChunkStream::new(file))
+            FileBytesStream::new(file).into_body()
         })
     }
 }

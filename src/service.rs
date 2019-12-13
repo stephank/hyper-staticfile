@@ -1,33 +1,11 @@
-use futures::{Async::*, Future, Poll};
+use crate::{resolve, ResponseBuilder};
 use http::{Request, Response};
 use hyper::{service::Service, Body};
-use std::io::Error;
+use std::future::Future;
+use std::io::Error as IoError;
 use std::path::PathBuf;
-use {resolve, ResolveFuture, ResponseBuilder};
-
-/// Future returned by `Static::serve`.
-pub struct StaticFuture<B> {
-    /// Whether to send cache headers, and what lifespan to indicate.
-    cache_headers: Option<u32>,
-    /// Future for the `resolve` in progress.
-    resolve_future: ResolveFuture,
-    /// Request we're serving.
-    request: Request<B>,
-}
-
-impl<B> Future for StaticFuture<B> {
-    type Item = Response<Body>;
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let result = try_ready!(self.resolve_future.poll());
-        let response = ResponseBuilder::new()
-            .cache_headers(self.cache_headers)
-            .build(&self.request, result)
-            .expect("unable to build response");
-        Ok(Ready(response))
-    }
-}
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// High-level interface for serving static files.
 ///
@@ -42,6 +20,7 @@ impl<B> Future for StaticFuture<B> {
 /// determine the response details.
 ///
 /// This struct also implements the `hyper::Service` trait, which simply wraps `Static::serve`.
+/// Note that using the trait currently involves an extra `Box`.
 #[derive(Clone)]
 pub struct Static {
     /// The root directory path to serve files from.
@@ -54,7 +33,7 @@ impl Static {
     /// Create a new instance of `Static` with a given root path.
     ///
     /// If `Path::new("")` is given, files will be served from the current directory.
-    pub fn new<P: Into<PathBuf>>(root: P) -> Self {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
         Static {
             root,
@@ -69,22 +48,31 @@ impl Static {
     }
 
     /// Serve a request.
-    pub fn serve<B>(&self, request: Request<B>) -> StaticFuture<B> {
-        StaticFuture {
-            cache_headers: self.cache_headers,
-            resolve_future: resolve(&self.root, &request),
-            request,
-        }
+    pub async fn serve<B>(self, request: Request<B>) -> Result<Response<Body>, IoError> {
+        let Self {
+            root,
+            cache_headers,
+        } = self;
+        resolve(root, &request).await.map(|result| {
+            ResponseBuilder::new()
+                .request(&request)
+                .cache_headers(cache_headers)
+                .build(result)
+                .expect("unable to build response")
+        })
     }
 }
 
-impl Service for Static {
-    type ReqBody = Body;
-    type ResBody = Body;
-    type Error = Error;
-    type Future = StaticFuture<Body>;
+impl<B: 'static> Service<Request<B>> for Static {
+    type Response = Response<Body>;
+    type Error = IoError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
-    fn call(&mut self, request: Request<Body>) -> Self::Future {
-        self.serve(request)
+    fn poll_ready(&mut self, _cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, request: Request<B>) -> Self::Future {
+        Box::pin(self.clone().serve(request))
     }
 }
