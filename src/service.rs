@@ -63,10 +63,10 @@ impl Static {
     }
 }
 
-impl<B: 'static> Service<Request<B>> for Static {
+impl<B: Send + Sync + 'static> Service<Request<B>> for Static {
     type Response = Response<Body>;
     type Error = IoError;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, _cx: &mut Context) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
