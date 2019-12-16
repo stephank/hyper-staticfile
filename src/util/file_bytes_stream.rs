@@ -1,5 +1,5 @@
-use futures_util::stream::{Stream, StreamExt};
-use hyper::body::{Body, Bytes, Sender};
+use futures_util::stream::Stream;
+use hyper::body::{Body, Bytes};
 use std::io::Error as IoError;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -42,25 +42,6 @@ impl Stream for FileBytesStream {
 impl FileBytesStream {
     /// Create a Hyper `Body` from this stream.
     pub fn into_body(self) -> Body {
-        let (sender, body) = Body::channel();
-        tokio::spawn(self.body_sender_loop(sender));
-        body
-    }
-
-    async fn body_sender_loop(mut self, mut sender: Sender) {
-        loop {
-            let (result, stream) = self.into_future().await;
-            self = stream;
-
-            let chunk = match result {
-                Some(Ok(chunk)) => chunk,
-                Some(Err(_)) => return sender.abort(),
-                None => break,
-            };
-
-            if let Err(_) = sender.send_data(chunk).await {
-                break;
-            }
-        }
+        Body::wrap_stream(self)
     }
 }
