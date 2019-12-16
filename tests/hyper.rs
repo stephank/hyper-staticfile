@@ -1,5 +1,5 @@
 use futures_util::future;
-use hyper::service::{make_service_fn};
+use hyper::service::make_service_fn;
 use hyper_staticfile::Static;
 use std::path::Path;
 
