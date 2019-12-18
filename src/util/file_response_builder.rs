@@ -3,10 +3,9 @@ use chrono::{offset::Local as LocalTz, DateTime, SubsecRound};
 use http::response::Builder as ResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode};
 use hyper::Body;
-use std::fs::Metadata;
-use tokio::fs::File;
+use std::fs::{File, Metadata};
 
-/// Utility to build responses for serving a `tokio::fs::File`.
+/// Utility to build responses for serving a `std::fs::File`.
 ///
 /// This struct allows direct access to its fields, but these fields are typically initialized by
 /// the accessors, using the builder pattern. The fields are basically a bunch of settings that

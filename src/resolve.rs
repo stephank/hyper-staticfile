@@ -1,10 +1,9 @@
 use crate::util::{open_with_metadata, RequestedPath};
 use http::{Method, Request};
 use mime_guess::{Mime, MimeGuess};
-use std::fs::Metadata;
+use std::fs::{File, Metadata};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::path::PathBuf;
-use tokio::fs::File;
 
 /// The result of `resolve`.
 ///

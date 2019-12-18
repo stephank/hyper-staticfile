@@ -16,13 +16,14 @@ categories = ["web-programming::http-server"]
 edition = "2018"
 
 [dependencies]
+bytes = "0.5.3"
 chrono = "0.4.10"
 futures-util = "0.3.1"
 http = "0.2.0"
 hyper = "0.13.0"
 mime_guess = "2.0.1"
 percent-encoding = "2.1.0"
-tokio = { version = "0.2.4", features = ["fs", "macros"] }
+tokio = { version = "0.2.4", features = ["macros"] }
 url = "2.1.0"
 
 [dev-dependencies]
