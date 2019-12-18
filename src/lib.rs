@@ -71,13 +71,13 @@
 //! behavior using `ResponseBuilder` if necessary.
 //!
 //! The `ResponseBuilder` in turn uses `FileResponseBuilder` to serve files that are found. The
-//! `FileResponseBuilder` can also be used directly if you have an existing open `tokio::fs::File`
+//! `FileResponseBuilder` can also be used directly if you have an existing open `std::fs::File`
 //! and want to serve it. It takes care of basic headers, 'not modified' responses, and streaming
 //! the file in the body.
 //!
 //! Finally, there's `FileBytesStream`, which is used by `FileResponseBuilder` to stream the file.
-//! This is a struct wrapping a `tokio::fs::File` and implementing a `futures::Stream` that
-//! produces `Bytes`s. It can be used for streaming a file in custom response.
+//! This is a struct wrapping a `std::fs::File` and implementing a `futures::Stream` that produces
+//! `Bytes`s. It can be used for streaming a file in custom response.
 
 mod resolve;
 mod response_builder;
