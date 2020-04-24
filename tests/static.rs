@@ -4,6 +4,7 @@ use http::{header, Request, StatusCode};
 use hyper_staticfile::Static;
 use std::future::Future;
 use std::io::{Error as IoError, Write};
+use std::process::Command;
 use std::{fs, str};
 use tempdir::TempDir;
 
@@ -199,4 +200,22 @@ async fn serves_file_with_new_if_modified_since() {
 
     let res = harness.request(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
+}
+
+#[cfg(target_family = "unix")]
+#[tokio::test]
+async fn no_headers_for_invalid_mtime() {
+    let harness = Harness::new(vec![("file1.html", "this is file1")]);
+
+    let mut file_path = harness.dir.path().to_path_buf();
+    file_path.push("file1.html");
+    let status = Command::new("touch")
+        .args(&["-t", "197001010000.01"])
+        .arg(file_path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let res = harness.get("/file1.html").await.unwrap();
+    assert!(res.headers().get(header::ETAG).is_none());
 }
