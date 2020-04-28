@@ -4,7 +4,15 @@ use http::response::Builder as ResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode};
 use hyper::Body;
 use std::fs::Metadata;
+use std::time::{Duration, UNIX_EPOCH};
 use tokio::fs::File;
+
+/// Minimum duration since Unix epoch we accept for file modification time.
+///
+/// This is intended to discard invalid times, specifically:
+///  - Zero values on any Unix system.
+///  - 'Epoch + 1' on NixOS.
+const MIN_VALID_MTIME: Duration = Duration::from_secs(2);
 
 /// Utility to build responses for serving a `tokio::fs::File`.
 ///
@@ -83,7 +91,13 @@ impl FileResponseBuilder {
         let mut res = ResponseBuilder::new();
 
         // Set `Last-Modified` and check `If-Modified-Since`.
-        if let Ok(modified) = metadata.modified() {
+        let modified = metadata.modified().ok().filter(|v| {
+            v.duration_since(UNIX_EPOCH)
+                .ok()
+                .filter(|v| v >= &MIN_VALID_MTIME)
+                .is_some()
+        });
+        if let Some(modified) = modified {
             let modified: DateTime<LocalTz> = modified.into();
 
             match self.if_modified_since {
