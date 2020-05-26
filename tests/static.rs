@@ -210,8 +210,9 @@ async fn no_headers_for_invalid_mtime() {
     let mut file_path = harness.dir.path().to_path_buf();
     file_path.push("file1.html");
     let status = Command::new("touch")
-        .args(&["-d", "@1"])
+        .args(&["-t", "197001010000.01"])
         .arg(file_path)
+        .env("TZ", "UTC")
         .status()
         .unwrap();
     assert!(status.success());
