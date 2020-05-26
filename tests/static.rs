@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use futures_util::stream::StreamExt;
 use http::{header, Request, StatusCode};
-use hyper_staticfile::Static;
+use hyper_staticfile::{DateTimeHttp, Static};
 use std::future::Future;
 use std::io::{Error as IoError, Write};
 use std::process::Command;
@@ -179,7 +179,7 @@ async fn serves_file_with_old_if_modified_since() {
     let if_modified = Utc::now() - Duration::seconds(3600);
     let req = Request::builder()
         .uri("/file1.html")
-        .header(header::IF_MODIFIED_SINCE, if_modified.to_rfc2822().as_str())
+        .header(header::IF_MODIFIED_SINCE, if_modified.to_http_date())
         .body(())
         .expect("unable to build request");
 
@@ -194,12 +194,36 @@ async fn serves_file_with_new_if_modified_since() {
     let if_modified = Utc::now() + Duration::seconds(3600);
     let req = Request::builder()
         .uri("/file1.html")
-        .header(header::IF_MODIFIED_SINCE, if_modified.to_rfc2822().as_str())
+        .header(header::IF_MODIFIED_SINCE, if_modified.to_http_date())
         .body(())
         .expect("unable to build request");
 
     let res = harness.request(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
+}
+
+#[cfg(target_family = "unix")]
+#[tokio::test]
+async fn last_modified_is_gmt() {
+    let harness = Harness::new(vec![("file1.html", "this is file1")]);
+
+    let mut file_path = harness.dir.path().to_path_buf();
+    file_path.push("file1.html");
+    let status = Command::new("touch")
+        .args(&["-t", "198510260122.00"])
+        .arg(file_path)
+        .env("TZ", "UTC")
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let res = harness.get("/file1.html").await.unwrap();
+    assert_eq!(
+        res.headers()
+            .get(header::LAST_MODIFIED)
+            .map(|val| val.to_str().unwrap()),
+        Some("Sat, 26 Oct 1985 01:22:00 GMT")
+    );
 }
 
 #[cfg(target_family = "unix")]

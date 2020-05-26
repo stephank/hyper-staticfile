@@ -1,4 +1,5 @@
 use super::FileBytesStream;
+use crate::util::DateTimeHttp;
 use chrono::{offset::Local as LocalTz, DateTime, SubsecRound};
 use http::response::Builder as ResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode};
@@ -102,7 +103,7 @@ impl FileResponseBuilder {
 
             match self.if_modified_since {
                 // Truncate before comparison, because the `Last-Modified` we serve
-                // is also truncated through `DateTime::to_rfc2822`.
+                // is also truncated in the HTTP date-time format.
                 Some(v) if modified.trunc_subsecs(0) <= v.trunc_subsecs(0) => {
                     return ResponseBuilder::new()
                         .status(StatusCode::NOT_MODIFIED)
@@ -112,7 +113,7 @@ impl FileResponseBuilder {
             }
 
             res = res
-                .header(header::LAST_MODIFIED, modified.to_rfc2822().as_str())
+                .header(header::LAST_MODIFIED, modified.to_http_date())
                 .header(
                     header::ETAG,
                     format!(
