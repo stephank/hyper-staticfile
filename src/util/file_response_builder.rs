@@ -121,20 +121,16 @@ impl FileResponseBuilder {
                         metadata.len(),
                         modified.timestamp(),
                         modified.timestamp_subsec_nanos()
-                    )
-                    .as_str(),
+                    ),
                 );
         }
 
         // Build remaining headers.
-        res = res.header(
-            header::CONTENT_LENGTH,
-            format!("{}", metadata.len()).as_str(),
-        );
+        res = res.header(header::CONTENT_LENGTH, format!("{}", metadata.len()));
         if let Some(seconds) = self.cache_headers {
             res = res.header(
                 header::CACHE_CONTROL,
-                format!("public, max-age={}", seconds).as_str(),
+                format!("public, max-age={}", seconds),
             );
         }
 

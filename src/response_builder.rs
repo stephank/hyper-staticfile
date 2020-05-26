@@ -93,7 +93,7 @@ impl<'a> ResponseBuilder<'a> {
 
                 HttpResponseBuilder::new()
                     .status(StatusCode::MOVED_PERMANENTLY)
-                    .header(header::LOCATION, target.as_str())
+                    .header(header::LOCATION, target)
                     .body(Body::empty())
             }
             ResolveResult::Found(file, metadata, mime) => self
