@@ -2,7 +2,7 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-//! Static file-serving for [Hyper 0.13](https://github.com/hyperium/hyper).
+//! Static file-serving for [Hyper 0.14](https://github.com/hyperium/hyper).
 //!
 //! This library exports a high-level interface `Static` for simple file-serving, and lower-level
 //! interfaces for more control over responses.

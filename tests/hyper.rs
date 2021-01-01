@@ -17,7 +17,7 @@ async fn test_usable_as_hyper_service() {
     // Bind to port "0" to allow the OS to pick one that's free, avoiding
     // the risk of collisions.
     let addr = ([127, 0, 0, 1], 0).into();
-    let server = hyper::Server::bind(&addr).serve(make_service);
+    let server = hyper::server::Server::bind(&addr).serve(make_service);
 
     // It's enough to show that this builds, so no need to execute anything.
     drop(server);
