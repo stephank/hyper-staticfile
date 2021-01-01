@@ -6,7 +6,7 @@ authors = [
   "Jonathan Reem <jonathan.reem@gmail.com>",
   "Stéphan Kochen <stephan@kochen.nl>",
 ]
-description = "Static file serving for Hyper 0.13"
+description = "Static file serving for Hyper 0.14"
 repository = "https://github.com/stephank/hyper-staticfile"
 license = "MIT"
 readme = "README.md"
@@ -19,14 +19,16 @@ edition = "2018"
 chrono = "0.4.10"
 futures-util = "0.3.1"
 http = "0.2.0"
-hyper = "0.13.0"
+hyper = { version = "0.14.0", features = ["stream"] }
 mime_guess = "2.0.1"
 percent-encoding = "2.1.0"
-tokio = { version = "0.2.4", features = ["fs", "macros"] }
+tokio = { version = "1.0.0", features = ["fs"] }
 url = "2.1.0"
 
 [dev-dependencies]
+hyper = { version = "0.14.0", features = ["http1", "server", "tcp"] }
 tempdir = "0.3.7"
+tokio = { version = "1.0.0", features = ["macros", "rt-multi-thread"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.6", features = ["winbase"] }
