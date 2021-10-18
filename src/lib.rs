@@ -1,6 +1,5 @@
 #![crate_name = "hyper_staticfile"]
 #![deny(missing_docs)]
-#![deny(warnings)]
 
 //! Static file-serving for [Hyper 0.14](https://github.com/hyperium/hyper).
 //!
