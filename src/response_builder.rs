@@ -86,7 +86,7 @@ impl<'a> ResponseBuilder<'a> {
             ResolveResult::IsDirectory => {
                 let mut target = self.path.to_owned();
                 target.push('/');
-                if let Some(ref query) = self.query {
+                if let Some(query) = self.query {
                     target.push('?');
                     target.push_str(query);
                 }
