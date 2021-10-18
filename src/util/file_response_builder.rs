@@ -1,11 +1,9 @@
 use super::FileBytesStream;
-use crate::util::DateTimeHttp;
-use chrono::{offset::Local as LocalTz, DateTime, SubsecRound};
 use http::response::Builder as ResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode};
 use hyper::Body;
 use std::fs::Metadata;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
 
 /// Minimum duration since Unix epoch we accept for file modification time.
@@ -27,7 +25,7 @@ pub struct FileResponseBuilder {
     /// Whether this is a `HEAD` request, with no response body.
     pub is_head: bool,
     /// The parsed value of the `If-Modified-Since` request header.
-    pub if_modified_since: Option<DateTime<LocalTz>>,
+    pub if_modified_since: Option<SystemTime>,
 }
 
 impl FileResponseBuilder {
@@ -73,7 +71,7 @@ impl FileResponseBuilder {
     }
 
     /// Build responses for the given `If-Modified-Since` date-time.
-    pub fn if_modified_since(&mut self, value: Option<DateTime<LocalTz>>) -> &mut Self {
+    pub fn if_modified_since(&mut self, value: Option<SystemTime>) -> &mut Self {
         self.if_modified_since = value;
         self
     }
@@ -82,8 +80,7 @@ impl FileResponseBuilder {
     pub fn if_modified_since_header(&mut self, value: Option<&header::HeaderValue>) -> &mut Self {
         self.if_modified_since = value
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| DateTime::parse_from_rfc2822(v).ok())
-            .map(|v| v.with_timezone(&LocalTz));
+            .and_then(|v| httpdate::parse_http_date(v).ok());
         self
     }
 
@@ -99,30 +96,31 @@ impl FileResponseBuilder {
                 .is_some()
         });
         if let Some(modified) = modified {
-            let modified: DateTime<LocalTz> = modified.into();
-
-            match self.if_modified_since {
-                // Truncate before comparison, because the `Last-Modified` we serve
-                // is also truncated in the HTTP date-time format.
-                Some(v) if modified.trunc_subsecs(0) <= v.trunc_subsecs(0) => {
-                    return ResponseBuilder::new()
-                        .status(StatusCode::NOT_MODIFIED)
-                        .body(Body::empty())
+            if let Ok(modified_unix) = modified.duration_since(UNIX_EPOCH) {
+                // Compare whole seconds only, because the HTTP date-time
+                // format also does not contain a fractional part.
+                if let Some(Ok(ims_unix)) =
+                    self.if_modified_since.map(|v| v.duration_since(UNIX_EPOCH))
+                {
+                    if modified_unix.as_secs() <= ims_unix.as_secs() {
+                        return ResponseBuilder::new()
+                            .status(StatusCode::NOT_MODIFIED)
+                            .body(Body::empty());
+                    }
                 }
-                _ => {}
-            }
 
-            res = res
-                .header(header::LAST_MODIFIED, modified.to_http_date())
-                .header(
+                res = res.header(
                     header::ETAG,
                     format!(
                         "W/\"{0:x}-{1:x}.{2:x}\"",
                         metadata.len(),
-                        modified.timestamp(),
-                        modified.timestamp_subsec_nanos()
+                        modified_unix.as_secs(),
+                        modified_unix.subsec_nanos()
                     ),
                 );
+            }
+
+            res = res.header(header::LAST_MODIFIED, httpdate::fmt_http_date(modified));
         }
 
         // Build remaining headers.

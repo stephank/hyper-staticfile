@@ -1,10 +1,11 @@
-use chrono::{Duration, Utc};
 use futures_util::stream::StreamExt;
 use http::{header, Request, StatusCode};
-use hyper_staticfile::{DateTimeHttp, Static};
+use httpdate::fmt_http_date;
+use hyper_staticfile::Static;
 use std::future::Future;
 use std::io::{Error as IoError, Write};
 use std::process::Command;
+use std::time::{Duration, SystemTime};
 use std::{fs, str};
 use tempdir::TempDir;
 
@@ -176,10 +177,10 @@ async fn changes_content_type_on_extension() {
 async fn serves_file_with_old_if_modified_since() {
     let harness = Harness::new(vec![("file1.html", "this is file1")]);
 
-    let if_modified = Utc::now() - Duration::seconds(3600);
+    let if_modified = SystemTime::now() - Duration::from_secs(3600);
     let req = Request::builder()
         .uri("/file1.html")
-        .header(header::IF_MODIFIED_SINCE, if_modified.to_http_date())
+        .header(header::IF_MODIFIED_SINCE, fmt_http_date(if_modified))
         .body(())
         .expect("unable to build request");
 
@@ -191,10 +192,10 @@ async fn serves_file_with_old_if_modified_since() {
 async fn serves_file_with_new_if_modified_since() {
     let harness = Harness::new(vec![("file1.html", "this is file1")]);
 
-    let if_modified = Utc::now() + Duration::seconds(3600);
+    let if_modified = SystemTime::now() + Duration::from_secs(3600);
     let req = Request::builder()
         .uri("/file1.html")
-        .header(header::IF_MODIFIED_SINCE, if_modified.to_http_date())
+        .header(header::IF_MODIFIED_SINCE, fmt_http_date(if_modified))
         .body(())
         .expect("unable to build request");
 

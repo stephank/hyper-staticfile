@@ -87,4 +87,4 @@ mod util;
 pub use crate::resolve::*;
 pub use crate::response_builder::*;
 pub use crate::service::*;
-pub use crate::util::{DateTimeHttp, FileBytesStream, FileResponseBuilder};
+pub use crate::util::{FileBytesStream, FileResponseBuilder};
