@@ -1,11 +1,7 @@
 [package]
 name = "hyper-staticfile"
 version = "0.7.0"
-authors = [
-  "Zach Pomerantz <zmp@umich.edu>",
-  "Jonathan Reem <jonathan.reem@gmail.com>",
-  "Stéphan Kochen <stephan@kochen.nl>",
-]
+authors = ["hyper-staticfile contributors"]
 description = "Static file serving for Hyper 0.14"
 repository = "https://github.com/stephank/hyper-staticfile"
 license = "MIT"
