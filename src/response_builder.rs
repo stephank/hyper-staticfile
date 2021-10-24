@@ -96,15 +96,10 @@ impl<'a> ResponseBuilder<'a> {
                     .header(header::LOCATION, target)
                     .body(Body::empty())
             }
-            ResolveResult::Found(file, metadata, mime) => self
-                .file_response_builder
-                .build(file, metadata)
-                .map(|mut r| {
-                    let header_val =
-                        header::HeaderValue::from_str(&mime.to_string()).expect("Invalid mimetype");
-                    r.headers_mut().insert(header::CONTENT_TYPE, header_val);
-                    r
-                }),
+            ResolveResult::Found(file, metadata, mime) => {
+                self.file_response_builder
+                    .build(file, metadata, mime.to_string())
+            }
         }
     }
 }
