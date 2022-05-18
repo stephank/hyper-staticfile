@@ -13,7 +13,6 @@ type Response = hyper::Response<hyper::Body>;
 type ResponseResult = Result<Response, IoError>;
 
 struct Harness {
-    #[allow(unused)]
     dir: TempDir,
     static_: Static,
 }
@@ -24,7 +23,7 @@ impl Harness {
             let fullpath = dir.path().join(subpath);
             fs::create_dir_all(fullpath.parent().unwrap())
                 .and_then(|_| fs::File::create(fullpath))
-                .and_then(|mut file| file.write(contents.as_bytes()))
+                .and_then(|mut file| file.write_all(contents.as_bytes()))
                 .expect("failed to write fixtures");
         }
 
@@ -32,6 +31,12 @@ impl Harness {
         static_.cache_headers(Some(3600));
 
         Harness { dir, static_ }
+    }
+
+    fn append(&self, subpath: &str, content: &str) {
+        let path = self.dir.path().join(subpath);
+        let mut f = fs::File::options().append(true).open(path).expect("failed to append to fixture");
+        f.write_all(content.as_bytes()).expect("failed to append to fixture");
     }
 
     fn request<B>(&self, req: Request<B>) -> impl Future<Output = ResponseResult> {
@@ -159,6 +164,16 @@ async fn sends_headers() {
         Some(&header::HeaderValue::from_static("text/html"))
     );
 
+    assert_eq!(read_body(res).await, "this is file1");
+}
+
+#[tokio::test]
+async fn content_length() {
+    let harness = Harness::new(vec![("file1.html", "this is file1")]);
+
+    let res = harness.get("/file1.html").await.unwrap();
+    harness.append("file1.html", "more content");
+    assert_eq!(res.headers().get(header::CONTENT_LENGTH).unwrap(), "13");
     assert_eq!(read_body(res).await, "this is file1");
 }
 
