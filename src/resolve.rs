@@ -13,8 +13,6 @@ use tokio::fs::File;
 pub enum ResolveResult {
     /// The request was not `GET` or `HEAD` request,
     MethodNotMatched,
-    /// The request URI was not just a path.
-    UriNotMatched,
     /// The requested file does not exist.
     NotFound,
     /// The requested file could not be accessed.
@@ -54,11 +52,6 @@ pub async fn resolve<B>(
         _ => {
             return Ok(ResolveResult::MethodNotMatched);
         }
-    }
-
-    // Handle only simple path requests.
-    if req.uri().scheme_str().is_some() || req.uri().host().is_some() {
-        return Ok(ResolveResult::UriNotMatched);
     }
 
     resolve_path(root, req.uri().path()).await

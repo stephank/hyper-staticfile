@@ -77,7 +77,7 @@ impl<'a> ResponseBuilder<'a> {
             ResolveResult::MethodNotMatched => HttpResponseBuilder::new()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::empty()),
-            ResolveResult::UriNotMatched | ResolveResult::NotFound => HttpResponseBuilder::new()
+            ResolveResult::NotFound => HttpResponseBuilder::new()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::empty()),
             ResolveResult::PermissionDenied => HttpResponseBuilder::new()
