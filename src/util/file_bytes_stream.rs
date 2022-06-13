@@ -16,7 +16,7 @@ const BUF_SIZE: usize = 8 * 1024;
 pub struct FileBytesStream {
     file: File,
     buf: Box<[MaybeUninit<u8>; BUF_SIZE]>,
-    range_remaining: u64,
+    remaining: u64,
 }
 
 impl FileBytesStream {
@@ -26,16 +26,17 @@ impl FileBytesStream {
         FileBytesStream {
             file,
             buf,
-            range_remaining: u64::MAX,
+            remaining: u64::MAX,
         }
     }
 
-    fn new_with_limit(file: File, range_remaining: u64) -> FileBytesStream {
+    /// Create a new stream from the given file, reading up to `limit` bytes.
+    pub fn new_with_limit(file: File, limit: u64) -> FileBytesStream {
         let buf = Box::new([MaybeUninit::uninit(); BUF_SIZE]);
         FileBytesStream {
             file,
             buf,
-            range_remaining,
+            remaining: limit,
         }
     }
 }
@@ -47,15 +48,15 @@ impl Stream for FileBytesStream {
         let Self {
             ref mut file,
             ref mut buf,
-            ref mut range_remaining,
+            ref mut remaining,
         } = *self;
 
-        let max_read_length = min(*range_remaining, buf.len() as u64) as usize;
+        let max_read_length = min(*remaining, buf.len() as u64) as usize;
         let mut read_buf = ReadBuf::uninit(&mut buf[..max_read_length]);
         match Pin::new(file).poll_read(cx, &mut read_buf) {
             Poll::Ready(Ok(())) => {
                 let filled = read_buf.filled();
-                *range_remaining -= filled.len() as u64;
+                *remaining -= filled.len() as u64;
                 if filled.is_empty() {
                     Poll::Ready(None)
                 } else {
@@ -285,7 +286,7 @@ impl Stream for FileBytesStreamMultiRange {
             return Poll::Ready(None);
         }
 
-        if file_range.file_stream.range_remaining == 0 {
+        if file_range.file_stream.remaining == 0 {
             let range = match range_iter.next() {
                 Some(r) => r,
                 None => {
@@ -299,7 +300,7 @@ impl Stream for FileBytesStreamMultiRange {
 
             file_range.seek_state = FileSeekState::NeedSeek;
             file_range.start_offset = range.start;
-            file_range.file_stream.range_remaining = range.length;
+            file_range.file_stream.remaining = range.length;
 
             let cur_is_first = *is_first_boundary;
             *is_first_boundary = false;
