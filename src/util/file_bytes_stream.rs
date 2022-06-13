@@ -21,16 +21,7 @@ pub struct FileBytesStream {
 
 impl FileBytesStream {
     /// Create a new stream from the given file.
-    pub fn new(file: File) -> FileBytesStream {
-        let buf = Box::new([MaybeUninit::uninit(); BUF_SIZE]);
-        FileBytesStream {
-            file,
-            buf,
-            range_remaining: u64::MAX,
-        }
-    }
-
-    fn new_with_limit(file: File, range_remaining: u64) -> FileBytesStream {
+    pub fn new(file: File, range_remaining: u64) -> FileBytesStream {
         let buf = Box::new([MaybeUninit::uninit(); BUF_SIZE]);
         FileBytesStream {
             file,
@@ -94,7 +85,7 @@ impl FileBytesStreamRange {
     /// Create a new stream from the given file and range
     pub fn new(file: File, range: HttpRange) -> FileBytesStreamRange {
         FileBytesStreamRange {
-            file_stream: FileBytesStream::new_with_limit(file, range.length),
+            file_stream: FileBytesStream::new(file, range.length),
             seek_state: FileSeekState::NeedSeek,
             start_offset: range.start,
         }
@@ -102,7 +93,7 @@ impl FileBytesStreamRange {
 
     fn without_initial_range(file: File) -> FileBytesStreamRange {
         FileBytesStreamRange {
-            file_stream: FileBytesStream::new_with_limit(file, 0),
+            file_stream: FileBytesStream::new(file, 0),
             seek_state: FileSeekState::NeedSeek,
             start_offset: 0,
         }

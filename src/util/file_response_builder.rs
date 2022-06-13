@@ -256,7 +256,7 @@ impl FileResponseBuilder {
 
         // Stream the body.
         res.status(StatusCode::OK)
-            .body(FileBytesStream::new(file).into_body())
+            .body(FileBytesStream::new(file, metadata.len()).into_body())
     }
 }
 
