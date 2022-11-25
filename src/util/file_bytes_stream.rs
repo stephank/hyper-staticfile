@@ -1,12 +1,13 @@
-use futures_util::stream::Stream;
-use http_range::HttpRange;
-use hyper::body::{Body, Bytes};
 use std::cmp::min;
 use std::io::{Cursor, Error as IoError, SeekFrom, Write};
 use std::mem::MaybeUninit;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::vec;
+
+use futures_util::stream::Stream;
+use http_range::HttpRange;
+use hyper::body::Bytes;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
 
@@ -69,13 +70,6 @@ impl Stream for FileBytesStream {
     }
 }
 
-impl FileBytesStream {
-    /// Create a Hyper `Body` from this stream.
-    pub fn into_body(self) -> Body {
-        Body::wrap_stream(self)
-    }
-}
-
 #[derive(PartialEq, Eq)]
 enum FileSeekState {
     NeedSeek,
@@ -135,13 +129,6 @@ impl Stream for FileBytesStreamRange {
             }
         }
         Pin::new(file_stream).poll_next(cx)
-    }
-}
-
-impl FileBytesStreamRange {
-    /// Create a Hyper `Body` from this stream.
-    pub fn into_body(self) -> Body {
-        Body::wrap_stream(self)
     }
 }
 
@@ -319,12 +306,5 @@ impl Stream for FileBytesStreamMultiRange {
         }
 
         Pin::new(file_range).poll_next(cx)
-    }
-}
-
-impl FileBytesStreamMultiRange {
-    /// Create a Hyper `Body` from this stream.
-    pub fn into_body(self) -> Body {
-        Body::wrap_stream(self)
     }
 }

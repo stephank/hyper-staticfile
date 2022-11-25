@@ -1,15 +1,17 @@
-use futures_util::stream::StreamExt;
-use http::{header, Request, StatusCode};
-use httpdate::fmt_http_date;
-use hyper_staticfile::Static;
 use std::future::Future;
-use std::io::{Cursor, Error as IoError, Write};
+use std::io::{Cursor, Error as IoError, Read, Write};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 use std::{fs, str};
+
+use http::{header, Request, StatusCode};
+use http_body_util::BodyExt;
+use httpdate::fmt_http_date;
+use hyper::body::Buf;
+use hyper_staticfile::{Body, Static};
 use tempdir::TempDir;
 
-type Response = hyper::Response<hyper::Body>;
+type Response = hyper::Response<Body>;
 type ResponseResult = Result<Response, IoError>;
 
 struct Harness {
@@ -57,16 +59,16 @@ impl Harness {
 }
 
 async fn read_body(req: Response) -> String {
-    let mut buf = vec![];
-    let mut body = req.into_body();
-    loop {
-        match body.next().await {
-            None => break,
-            Some(Err(err)) => panic!("{:?}", err),
-            Some(Ok(chunk)) => buf.extend_from_slice(&chunk[..]),
-        }
-    }
-    String::from_utf8(buf).unwrap()
+    let mut body = String::new();
+    req.into_body()
+        .collect()
+        .await
+        .unwrap()
+        .aggregate()
+        .reader()
+        .read_to_string(&mut body)
+        .unwrap();
+    body
 }
 
 #[tokio::test]

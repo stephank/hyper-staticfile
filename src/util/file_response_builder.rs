@@ -1,13 +1,13 @@
-use super::{FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange};
 use http::response::Builder as ResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode};
 use http_range::HttpRange;
 use http_range::HttpRangeParseError;
-use hyper::Body;
 use rand::prelude::{thread_rng, SliceRandom};
 use std::fs::Metadata;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
+
+use super::{Body, FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange};
 
 /// Minimum duration since Unix epoch we accept for file modification time.
 ///
@@ -140,7 +140,7 @@ impl FileResponseBuilder {
                     if modified_unix.as_secs() <= ims_unix.as_secs() {
                         return ResponseBuilder::new()
                             .status(StatusCode::NOT_MODIFIED)
-                            .body(Body::empty());
+                            .body(Body::Empty);
                     }
                 }
 
@@ -181,7 +181,7 @@ impl FileResponseBuilder {
 
         if self.is_head {
             res = res.header(header::CONTENT_LENGTH, format!("{}", metadata.len()));
-            return res.status(StatusCode::OK).body(Body::empty());
+            return res.status(StatusCode::OK).body(Body::Empty);
         }
 
         let ranges = self.range.as_ref().filter(|_| range_cond_ok).and_then(|r| {
@@ -198,7 +198,7 @@ impl FileResponseBuilder {
                 Err(()) => {
                     return res
                         .status(StatusCode::RANGE_NOT_SATISFIABLE)
-                        .body(Body::empty());
+                        .body(Body::Empty);
                 }
             };
 
@@ -214,7 +214,7 @@ impl FileResponseBuilder {
                 let body_stream = FileBytesStreamRange::new(file, single_span);
                 return res
                     .status(StatusCode::PARTIAL_CONTENT)
-                    .body(body_stream.into_body());
+                    .body(Body::Range(body_stream));
             } else if ranges.len() > 1 {
                 let mut boundary_tmp = [0u8; BOUNDARY_LENGTH];
 
@@ -245,7 +245,7 @@ impl FileResponseBuilder {
 
                 return res
                     .status(StatusCode::PARTIAL_CONTENT)
-                    .body(body_stream.into_body());
+                    .body(Body::MultiRange(body_stream));
             }
         }
 
@@ -256,7 +256,10 @@ impl FileResponseBuilder {
 
         // Stream the body.
         res.status(StatusCode::OK)
-            .body(FileBytesStream::new_with_limit(file, metadata.len()).into_body())
+            .body(Body::Full(FileBytesStream::new_with_limit(
+                file,
+                metadata.len(),
+            )))
     }
 }
 

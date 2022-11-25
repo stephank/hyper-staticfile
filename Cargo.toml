@@ -2,7 +2,7 @@
 name = "hyper-staticfile"
 version = "0.9.1"
 authors = ["hyper-staticfile contributors"]
-description = "Static file serving for Hyper 0.14"
+description = "Static file serving for Hyper 1.0"
 repository = "https://github.com/stephank/hyper-staticfile"
 license = "MIT"
 readme = "README.md"
@@ -16,7 +16,7 @@ futures-util = "0.3.1"
 http = "0.2.0"
 httpdate = "1.0.1"
 http-range = "0.1.4"
-hyper = { version = "0.14.0", features = ["stream"] }
+hyper = "1.0.0-rc.1"
 mime_guess = "2.0.1"
 percent-encoding = "2.1.0"
 rand = "0.8.4"
@@ -24,9 +24,10 @@ tokio = { version = "1.0.0", features = ["fs"] }
 url = "2.1.0"
 
 [dev-dependencies]
-hyper = { version = "0.14.0", features = ["http1", "server", "tcp"] }
+hyper = { version = "1.0.0-rc.1", features = ["http1", "server"] }
+http-body-util = "0.1.0-rc.1"
 tempdir = "0.3.7"
-tokio = { version = "1.0.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.0.0", features = ["macros", "rt-multi-thread", "net", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.6", features = ["winbase"] }

@@ -1,11 +1,12 @@
-use crate::{resolve, ResponseBuilder};
 use http::{Request, Response};
-use hyper::{service::Service, Body};
+use hyper::service::Service;
 use std::future::Future;
 use std::io::Error as IoError;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+
+use crate::util::Body;
+use crate::{resolve, ResponseBuilder};
 
 /// High-level interface for serving static files.
 ///
@@ -67,10 +68,6 @@ impl<B: Send + Sync + 'static> Service<Request<B>> for Static {
     type Response = Response<Body>;
     type Error = IoError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, _cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
 
     fn call(&mut self, request: Request<B>) -> Self::Future {
         Box::pin(self.clone().serve(request))

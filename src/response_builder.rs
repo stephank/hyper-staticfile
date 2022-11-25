@@ -1,8 +1,8 @@
-use crate::resolve::ResolveResult;
-use crate::util::FileResponseBuilder;
 use http::response::Builder as HttpResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode, Uri};
-use hyper::Body;
+
+use crate::resolve::ResolveResult;
+use crate::util::{Body, FileResponseBuilder};
 
 /// Utility to build the default response for a `resolve` result.
 ///
@@ -76,13 +76,13 @@ impl<'a> ResponseBuilder<'a> {
         match result {
             ResolveResult::MethodNotMatched => HttpResponseBuilder::new()
                 .status(StatusCode::BAD_REQUEST)
-                .body(Body::empty()),
+                .body(Body::Empty),
             ResolveResult::NotFound => HttpResponseBuilder::new()
                 .status(StatusCode::NOT_FOUND)
-                .body(Body::empty()),
+                .body(Body::Empty),
             ResolveResult::PermissionDenied => HttpResponseBuilder::new()
                 .status(StatusCode::FORBIDDEN)
-                .body(Body::empty()),
+                .body(Body::Empty),
             ResolveResult::IsDirectory => {
                 let mut target = self.path.to_owned();
                 target.push('/');
@@ -94,7 +94,7 @@ impl<'a> ResponseBuilder<'a> {
                 HttpResponseBuilder::new()
                     .status(StatusCode::MOVED_PERMANENTLY)
                     .header(header::LOCATION, target)
-                    .body(Body::empty())
+                    .body(Body::Empty)
             }
             ResolveResult::Found(file, metadata, mime) => {
                 self.file_response_builder
