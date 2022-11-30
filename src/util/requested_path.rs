@@ -11,7 +11,14 @@ fn normalize_path(path: &Path) -> PathBuf {
     path.components()
         .fold(PathBuf::new(), |mut result, p| match p {
             Component::Normal(x) => {
-                result.push(x);
+                // Parse again to prevent a malicious component containing
+                // a Windows drive letter, e.g.: `/anypath/c:/windows/win.ini`
+                if Path::new(&x)
+                    .components()
+                    .all(|c| matches!(c, Component::Normal(_)))
+                {
+                    result.push(x);
+                }
                 result
             }
             Component::ParentDir => {

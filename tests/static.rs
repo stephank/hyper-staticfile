@@ -406,3 +406,12 @@ async fn serves_requested_range_not_satisfiable_when_at_end() {
     let res = harness.request(req).await.unwrap();
     assert_eq!(res.status(), hyper::StatusCode::RANGE_NOT_SATISFIABLE);
 }
+
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn ignore_windows_drive_letter() {
+    let harness = Harness::new(vec![("file1.html", "this is file1")]);
+
+    let res = harness.get("/c:/file1.html").await.unwrap();
+    assert_eq!(read_body(res).await, "this is file1");
+}
