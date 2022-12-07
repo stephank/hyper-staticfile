@@ -30,7 +30,7 @@
 //!
 //! ## Advanced usage
 //!
-//! The `Static` type is a simple wrapper for `resolve` and `ResponseBuilder`. You can achieve the
+//! The `Static` type is a simple wrapper for `Resolver` and `ResponseBuilder`. You can achieve the
 //! same by doing something similar to the following:
 //!
 //! ```rust
@@ -47,7 +47,8 @@
 //!         .unwrap();
 //!
 //!     // First, resolve the request. Returns a future for a `ResolveResult`.
-//!     let result = hyper_staticfile::resolve(&root, &request)
+//!     let result = hyper_staticfile::Resolver::from_root(root)
+//!         .resolve_request(&request)
 //!         .await
 //!         .unwrap();
 //!

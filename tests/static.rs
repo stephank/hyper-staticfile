@@ -1,7 +1,7 @@
 use futures_util::stream::StreamExt;
 use http::{header, Request, StatusCode};
 use httpdate::fmt_http_date;
-use hyper_staticfile::Static;
+use hyper_staticfile::{AcceptEncoding, Encoding, Static};
 use std::future::Future;
 use std::io::{Cursor, Error as IoError, Write};
 use std::process::Command;
@@ -28,7 +28,9 @@ impl Harness {
         }
 
         let mut static_ = Static::new(dir.path().clone());
-        static_.cache_headers(Some(3600));
+        static_
+            .cache_headers(Some(3600))
+            .allowed_encodings(AcceptEncoding::all());
 
         Harness { dir, static_ }
     }
@@ -405,6 +407,47 @@ async fn serves_requested_range_not_satisfiable_when_at_end() {
 
     let res = harness.request(req).await.unwrap();
     assert_eq!(res.status(), hyper::StatusCode::RANGE_NOT_SATISFIABLE);
+}
+
+#[tokio::test]
+async fn serves_gzip() {
+    let harness = Harness::new(vec![
+        ("file1.html", "this is file1"),
+        ("file1.html.gz", "fake gzip compression"),
+    ]);
+    let req = Request::builder()
+        .uri("/file1.html")
+        .header(header::ACCEPT_ENCODING, "gzip")
+        .body(())
+        .expect("unable to build request");
+
+    let res = harness.request(req).await.unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_ENCODING),
+        Some(&Encoding::Gzip.to_header_value())
+    );
+    assert_eq!(read_body(res).await, "fake gzip compression");
+}
+
+#[tokio::test]
+async fn serves_br() {
+    let harness = Harness::new(vec![
+        ("file1.html", "this is file1"),
+        ("file1.html.br", "fake brotli compression"),
+        ("file1.html.gz", "fake gzip compression"),
+    ]);
+    let req = Request::builder()
+        .uri("/file1.html")
+        .header(header::ACCEPT_ENCODING, "br;q=1.0, gzip;q=0.5")
+        .body(())
+        .expect("unable to build request");
+
+    let res = harness.request(req).await.unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_ENCODING),
+        Some(&Encoding::Br.to_header_value())
+    );
+    assert_eq!(read_body(res).await, "fake brotli compression");
 }
 
 #[cfg(target_os = "windows")]

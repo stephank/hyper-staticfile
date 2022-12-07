@@ -100,6 +100,14 @@ impl<'a> ResponseBuilder<'a> {
                 self.file_response_builder
                     .build(file, metadata, mime.to_string())
             }
+            ResolveResult::FoundEncoded(file, metadata, mime, encoding) => {
+                let mut res = self
+                    .file_response_builder
+                    .build(file, metadata, mime.to_string())?;
+                res.headers_mut()
+                    .insert(header::CONTENT_ENCODING, encoding.to_header_value());
+                Ok(res)
+            }
         }
     }
 }
