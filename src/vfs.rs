@@ -1,12 +1,18 @@
-use futures_util::FutureExt;
+use futures_util::future::{ready, FutureExt, Ready};
+use hyper::body::Bytes;
 use std::{
+    collections::HashMap,
     fs::OpenOptions,
     future::Future,
-    io::{Error, ErrorKind},
-    path::{Path, PathBuf},
+    io::{Cursor, Error, ErrorKind},
+    path::{Component, Path, PathBuf},
+    sync::Arc,
     time::SystemTime,
 };
-use tokio::{fs::File, task::spawn_blocking};
+use tokio::{
+    fs::{self, File},
+    task::spawn_blocking,
+};
 
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
@@ -19,6 +25,7 @@ use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
 /// `File`-specific operations to find the metadata and fill the additional fields here.
 ///
 /// This struct is eventually converted to a `ResolvedFile`.
+#[derive(Debug)]
 pub struct FileWithMetadata<F = File> {
     /// Open file handle.
     pub handle: F,
@@ -77,7 +84,6 @@ impl FileOpener for TokioFileOpener {
     type File = File;
     type Future = Box<dyn Future<Output = Result<FileWithMetadata<File>, Error>> + Send + Unpin>;
 
-    /// Open a file with tokio.
     fn open(&self, path: &Path) -> Self::Future {
         let mut full_path = self.root.clone();
         full_path.extend(path);
@@ -104,6 +110,154 @@ impl FileOpener for TokioFileOpener {
                 Ok(res) => res,
                 Err(_) => Err(Error::new(ErrorKind::Other, "background task failed")),
             }),
+        )
+    }
+}
+
+type MemoryFileMap = HashMap<PathBuf, FileWithMetadata<Bytes>>;
+
+/// Builder for a `MemoryFs`.
+pub struct MemoryFsBuilder {
+    files: MemoryFileMap,
+}
+
+impl Default for MemoryFsBuilder {
+    fn default() -> Self {
+        let mut files = MemoryFileMap::new();
+
+        // Create a top-level directory entry.
+        files.insert(
+            PathBuf::new(),
+            FileWithMetadata {
+                handle: Bytes::new(),
+                size: 0,
+                modified: None,
+                is_dir: true,
+            },
+        );
+
+        Self { files }
+    }
+}
+
+impl MemoryFsBuilder {
+    /// Add a file to the `MemoryFs`.
+    ///
+    /// This automatically creates directory entries leading up to the path. Any existing entries
+    /// are overwritten.
+    pub fn add(
+        &mut self,
+        path: impl Into<PathBuf>,
+        data: Bytes,
+        modified: Option<SystemTime>,
+    ) -> &mut Self {
+        let path = path.into();
+
+        // Create directory entries.
+        let mut components: Vec<_> = path.components().collect();
+        components.pop();
+        let mut dir_path = PathBuf::new();
+        for component in components {
+            if let Component::Normal(x) = component {
+                dir_path.push(x);
+                self.files.insert(
+                    dir_path.clone(),
+                    FileWithMetadata {
+                        handle: Bytes::new(),
+                        size: 0,
+                        modified: None,
+                        is_dir: true,
+                    },
+                );
+            }
+        }
+
+        // Create the file entry.
+        let size = data.len() as u64;
+        self.files.insert(
+            path,
+            FileWithMetadata {
+                handle: data,
+                size,
+                modified,
+                is_dir: false,
+            },
+        );
+
+        self
+    }
+
+    /// Consume the builder and return the `MemoryFs`.
+    pub fn build(self) -> MemoryFs {
+        MemoryFs {
+            files: Arc::new(self.files),
+        }
+    }
+}
+
+/// An in-memory virtual filesystem.
+///
+/// This type implements `FileOpener`, and can be directly used in `Static::with_opener`, for example.
+#[derive(Default)]
+pub struct MemoryFs {
+    files: Arc<MemoryFileMap>,
+}
+
+impl MemoryFs {
+    /// Create a new builder.
+    ///
+    /// Alias for: `MemoryFsBuilder::default()`
+    pub fn builder() -> MemoryFsBuilder {
+        MemoryFsBuilder::default()
+    }
+
+    /// Initialize a `MemoryFs` from a directory.
+    ///
+    /// This loads all files and their contents into memory. Symlinks are followed.
+    pub async fn from_dir(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let mut builder = Self::builder();
+
+        // Pending directories to scan, as: `(real path, virtual path)`
+        let mut dirs = vec![(path.as_ref().to_path_buf(), PathBuf::new())];
+        while let Some((dir, base)) = dirs.pop() {
+            let mut iter = fs::read_dir(dir).await?;
+            while let Some(entry) = iter.next_entry().await? {
+                let metadata = entry.metadata().await?;
+
+                // Build the virtual path.
+                let mut out_path = base.to_path_buf();
+                out_path.push(entry.file_name());
+
+                if metadata.is_dir() {
+                    // Add to pending stack,
+                    dirs.push((entry.path(), out_path));
+                } else if metadata.is_file() {
+                    // Read file contents and create an entry.
+                    let data = fs::read(entry.path()).await?;
+                    builder.add(out_path, data.into(), metadata.modified().ok());
+                }
+            }
+        }
+
+        Ok(builder.build())
+    }
+}
+
+impl FileOpener for MemoryFs {
+    type File = Cursor<Bytes>;
+    type Future = Ready<Result<FileWithMetadata<Self::File>, Error>>;
+
+    fn open(&self, path: &Path) -> Self::Future {
+        ready(
+            self.files
+                .get(path)
+                .map(|file| FileWithMetadata {
+                    handle: Cursor::new(file.handle.clone()),
+                    size: file.size,
+                    modified: file.modified,
+                    is_dir: file.is_dir,
+                })
+                .ok_or_else(|| Error::new(ErrorKind::NotFound, "Not found")),
         )
     }
 }

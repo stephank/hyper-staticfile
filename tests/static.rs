@@ -1,7 +1,7 @@
 use futures_util::stream::StreamExt;
 use http::{header, Request, StatusCode};
 use httpdate::fmt_http_date;
-use hyper_staticfile::{AcceptEncoding, Encoding, Static};
+use hyper_staticfile::{vfs::MemoryFs, AcceptEncoding, Encoding, Static};
 use std::future::Future;
 use std::io::{Cursor, Error as IoError, Write};
 use std::process::Command;
@@ -18,6 +18,17 @@ struct Harness {
 }
 impl Harness {
     fn new(files: Vec<(&str, &str)>) -> Harness {
+        let dir = Self::create_temp_dir(files);
+
+        let mut static_ = Static::new(dir.path());
+        static_
+            .cache_headers(Some(3600))
+            .allowed_encodings(AcceptEncoding::all());
+
+        Harness { dir, static_ }
+    }
+
+    fn create_temp_dir(files: Vec<(&str, &str)>) -> TempDir {
         let dir = TempDir::new("hyper-staticfile-tests").unwrap();
         for (subpath, contents) in files {
             let fullpath = dir.path().join(subpath);
@@ -26,13 +37,7 @@ impl Harness {
                 .and_then(|mut file| file.write_all(contents.as_bytes()))
                 .expect("failed to write fixtures");
         }
-
-        let mut static_ = Static::new(dir.path());
-        static_
-            .cache_headers(Some(3600))
-            .allowed_encodings(AcceptEncoding::all());
-
-        Harness { dir, static_ }
+        dir
     }
 
     fn append(&self, subpath: &str, content: &str) {
@@ -448,6 +453,23 @@ async fn serves_br() {
         Some(&Encoding::Br.to_header_value())
     );
     assert_eq!(read_body(res).await, "fake brotli compression");
+}
+
+#[tokio::test]
+async fn test_memory_fs() {
+    let dir = Harness::create_temp_dir(vec![("foobar/file1.html", "this is file1")]);
+    let fs = MemoryFs::from_dir(dir.path())
+        .await
+        .expect("MemoryFs failed");
+    dir.close().expect("tempdir cleanup failed");
+
+    let req = Request::builder()
+        .uri("/foobar/file1.html")
+        .body(())
+        .expect("unable to build request");
+
+    let res = Static::with_opener(fs).serve(req).await.unwrap();
+    assert_eq!(read_body(res).await, "this is file1");
 }
 
 #[cfg(target_os = "windows")]
