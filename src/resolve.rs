@@ -1,21 +1,55 @@
-use crate::util::{open_with_metadata, RequestedPath};
+use crate::util::RequestedPath;
+use crate::vfs::{FileOpener, FileWithMetadata, TokioFileOpener};
 use http::{header, HeaderValue, Method, Request};
-use mime_guess::{Mime, MimeGuess};
-use std::fs::Metadata;
+use mime_guess::MimeGuess;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::ops::BitAnd;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::fs::File;
 
-/// This struct resolves files from a single root path, which may be absolute or relative. A
-/// request is mapped onto the filesystem by appending its URL path to the root path. If the
-/// filesystem path corresponds to a regular file, the service will attempt to serve it. Otherwise,
-/// if the path corresponds to a directory containing an `index.html`, the service will attempt to
-/// serve that instead.
-#[derive(Clone)]
-pub struct Resolver {
-    /// The root directory path to resolve files against.
-    pub root: PathBuf,
+/// Struct containing all the required data to serve a file.
+#[derive(Debug)]
+pub struct ResolvedFile<F = File> {
+    /// Open file handle.
+    pub handle: F,
+    /// Size in bytes.
+    pub size: u64,
+    /// Last modification time.
+    pub modified: Option<SystemTime>,
+    /// MIME type / 'Content-Type' value.
+    pub content_type: Option<String>,
+    /// 'Content-Encoding' value.
+    pub encoding: Option<Encoding>,
+}
+
+impl<F> ResolvedFile<F> {
+    fn new(
+        file: FileWithMetadata<F>,
+        content_type: Option<String>,
+        encoding: Option<Encoding>,
+    ) -> Self {
+        Self {
+            handle: file.handle,
+            size: file.size,
+            modified: file.modified,
+            content_type,
+            encoding,
+        }
+    }
+}
+
+/// Resolves request paths to files.
+///
+/// This struct resolves files based on the request path. The path is first sanitized, then mapped
+/// to a file on the filesystem. If the path corresponds to a directory, it will try to look for a
+/// directory index.
+///
+/// Cloning this struct is a cheap operation.
+pub struct Resolver<O = TokioFileOpener> {
+    /// The (virtual) filesystem used to open files.
+    pub opener: Arc<O>,
 
     /// Encodings the client is allowed to request with `Accept-Encoding`.
     ///
@@ -26,11 +60,11 @@ pub struct Resolver {
     pub allowed_encodings: AcceptEncoding,
 }
 
-/// The result of `resolve`.
+/// The result of `Resolver` methods.
 ///
 /// Covers all the possible 'normal' scenarios encountered when serving static files.
 #[derive(Debug)]
-pub enum ResolveResult {
+pub enum ResolveResult<F = File> {
     /// The request was not `GET` or `HEAD` request,
     MethodNotMatched,
     /// The requested file does not exist.
@@ -40,13 +74,11 @@ pub enum ResolveResult {
     /// A directory was requested as a file.
     IsDirectory,
     /// The requested file was found.
-    Found(File, Metadata, Mime),
-    /// A pre-encoded version of the requested file was found.
-    FoundEncoded(File, Metadata, Mime, Encoding),
+    Found(ResolvedFile<F>),
 }
 
 /// Some IO errors are expected when serving files, and mapped to a regular result here.
-fn map_open_err(err: IoError) -> Result<ResolveResult, IoError> {
+fn map_open_err<F>(err: IoError) -> Result<ResolveResult<F>, IoError> {
     match err.kind() {
         IoErrorKind::NotFound => Ok(ResolveResult::NotFound),
         IoErrorKind::PermissionDenied => Ok(ResolveResult::PermissionDenied),
@@ -54,13 +86,18 @@ fn map_open_err(err: IoError) -> Result<ResolveResult, IoError> {
     }
 }
 
-impl Resolver {
-    /// Create a resolver.
-    ///
-    /// Short-hand that sets `allowed_encodings` to none.
-    pub fn from_root(root: impl Into<PathBuf>) -> Self {
+impl Resolver<TokioFileOpener> {
+    /// Create a resolver that resolves files inside a root directory on the regular filesystem.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self::with_opener(TokioFileOpener::new(root))
+    }
+}
+
+impl<O: FileOpener> Resolver<O> {
+    /// Create a resolver with a custom file opener.
+    pub fn with_opener(opener: O) -> Self {
         Self {
-            root: root.into(),
+            opener: Arc::new(opener),
             allowed_encodings: AcceptEncoding::none(),
         }
     }
@@ -70,7 +107,10 @@ impl Resolver {
     /// The returned future may error for unexpected IO errors, passing on the `std::io::Error`.
     /// Certain expected IO errors are handled, though, and simply reflected in the result. These are
     /// `NotFound` and `PermissionDenied`.
-    pub async fn resolve_request<B>(&self, req: &Request<B>) -> Result<ResolveResult, IoError> {
+    pub async fn resolve_request<B>(
+        &self,
+        req: &Request<B>,
+    ) -> Result<ResolveResult<O::File>, IoError> {
         // Handle only `GET`/`HEAD` and absolute paths.
         match *req.method() {
             Method::HEAD | Method::GET => {}
@@ -102,87 +142,98 @@ impl Resolver {
         &self,
         request_path: &str,
         accept_encoding: AcceptEncoding,
-    ) -> Result<ResolveResult, IoError> {
+    ) -> Result<ResolveResult<O::File>, IoError> {
+        // Sanitize input path.
         let RequestedPath {
-            mut full_path,
+            sanitized: mut path,
             is_dir_request,
-        } = RequestedPath::resolve(self.root.to_owned(), request_path);
+        } = RequestedPath::resolve(request_path);
 
-        let (file, metadata) = match open_with_metadata(&full_path).await {
+        // Try to open the file.
+        let file = match self.opener.open(&path).await {
             Ok(pair) => pair,
             Err(err) => return map_open_err(err),
         };
 
-        // The resolved `full_path` doesn't contain the trailing slash anymore, so we may
+        // The resolved path doesn't contain the trailing slash anymore, so we may
         // have opened a file for a directory request, which we treat as 'not found'.
-        if is_dir_request && !metadata.is_dir() {
+        if is_dir_request && !file.is_dir {
             return Ok(ResolveResult::NotFound);
         }
 
         // We may have opened a directory for a file request, in which case we redirect.
-        if !is_dir_request && metadata.is_dir() {
+        if !is_dir_request && file.is_dir {
             return Ok(ResolveResult::IsDirectory);
         }
 
         // If not a directory, serve this file.
         if !is_dir_request {
-            return Self::resolve_final(file, metadata, full_path, accept_encoding).await;
+            return self.resolve_final(file, path, accept_encoding).await;
         }
 
         // Resolve the directory index.
-        full_path.push("index.html");
-        let (file, metadata) = match open_with_metadata(&full_path).await {
+        path.push("index.html");
+        let file = match self.opener.open(&path).await {
             Ok(pair) => pair,
             Err(err) => return map_open_err(err),
         };
 
         // The directory index cannot itself be a directory.
-        if metadata.is_dir() {
+        if file.is_dir {
             return Ok(ResolveResult::NotFound);
         }
 
         // Serve this file.
-        Self::resolve_final(file, metadata, full_path, accept_encoding).await
+        self.resolve_final(file, path, accept_encoding).await
     }
 
     // Found a file, perform final resolution steps.
     async fn resolve_final(
-        file: File,
-        metadata: Metadata,
-        full_path: PathBuf,
+        &self,
+        file: FileWithMetadata<O::File>,
+        path: PathBuf,
         accept_encoding: AcceptEncoding,
-    ) -> Result<ResolveResult, IoError> {
+    ) -> Result<ResolveResult<O::File>, IoError> {
         // Determine MIME-type. This needs to happen before we resolve a pre-encoded file.
-        let mime = MimeGuess::from_path(&full_path).first_or_octet_stream();
+        let mime = MimeGuess::from_path(&path)
+            .first()
+            .map(|mime| mime.to_string());
 
         // Resolve pre-encoded files.
         if accept_encoding.br {
-            let mut br_path = full_path.clone().into_os_string();
+            let mut br_path = path.clone().into_os_string();
             br_path.push(".br");
-            if let Ok((enc_file, enc_metadata)) = open_with_metadata(&br_path).await {
-                return Ok(ResolveResult::FoundEncoded(
-                    enc_file,
-                    enc_metadata,
+            if let Ok(file) = self.opener.open(br_path.as_ref()).await {
+                return Ok(ResolveResult::Found(ResolvedFile::new(
+                    file,
                     mime,
-                    Encoding::Br,
-                ));
+                    Some(Encoding::Br),
+                )));
             }
         }
         if accept_encoding.gzip {
-            let mut gzip_path = full_path.into_os_string();
+            let mut gzip_path = path.into_os_string();
             gzip_path.push(".gz");
-            if let Ok((enc_file, enc_metadata)) = open_with_metadata(&gzip_path).await {
-                return Ok(ResolveResult::FoundEncoded(
-                    enc_file,
-                    enc_metadata,
+            if let Ok(file) = self.opener.open(gzip_path.as_ref()).await {
+                return Ok(ResolveResult::Found(ResolvedFile::new(
+                    file,
                     mime,
-                    Encoding::Gzip,
-                ));
+                    Some(Encoding::Gzip),
+                )));
             }
         }
 
         // No pre-encoded file found, serve the original.
-        Ok(ResolveResult::Found(file, metadata, mime))
+        Ok(ResolveResult::Found(ResolvedFile::new(file, mime, None)))
+    }
+}
+
+impl<O> Clone for Resolver<O> {
+    fn clone(&self) -> Self {
+        Self {
+            opener: self.opener.clone(),
+            allowed_encodings: self.allowed_encodings,
+        }
     }
 }
 
@@ -235,9 +286,9 @@ impl AcceptEncoding {
     pub fn from_header_value(value: &HeaderValue) -> Self {
         let mut res = Self::none();
         if let Ok(value) = value.to_str() {
-            for enc in value.split(",") {
+            for enc in value.split(',') {
                 // TODO: Handle weights (q=)
-                match enc.split(";").next().unwrap().trim() {
+                match enc.split(';').next().unwrap().trim() {
                     "gzip" => res.gzip = true,
                     "br" => res.br = true,
                     _ => {}

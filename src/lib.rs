@@ -47,7 +47,8 @@
 //!         .unwrap();
 //!
 //!     // First, resolve the request. Returns a future for a `ResolveResult`.
-//!     let result = hyper_staticfile::Resolver::from_root(root)
+//!     // A resolver can be cheaply cloned if necessary.
+//!     let result = hyper_staticfile::Resolver::new(root)
 //!         .resolve_request(&request)
 //!         .await
 //!         .unwrap();
@@ -83,6 +84,9 @@ mod resolve;
 mod response_builder;
 mod service;
 mod util;
+
+/// Types to implement a custom (virtual) filesystem to serve files from.
+pub mod vfs;
 
 pub use crate::resolve::*;
 pub use crate::response_builder::*;

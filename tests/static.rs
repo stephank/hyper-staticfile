@@ -27,7 +27,7 @@ impl Harness {
                 .expect("failed to write fixtures");
         }
 
-        let mut static_ = Static::new(dir.path().clone());
+        let mut static_ = Static::new(dir.path());
         static_
             .cache_headers(Some(3600))
             .allowed_encodings(AcceptEncoding::all());

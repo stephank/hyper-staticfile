@@ -3,6 +3,7 @@ use crate::util::FileResponseBuilder;
 use http::response::Builder as HttpResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode, Uri};
 use hyper::Body;
+use tokio::io::{AsyncRead, AsyncSeek};
 
 /// Utility to build the default response for a `resolve` result.
 ///
@@ -72,7 +73,10 @@ impl<'a> ResponseBuilder<'a> {
     ///
     /// This function may error if it response could not be constructed, but this should be a
     /// seldom occurrence.
-    pub fn build(&self, result: ResolveResult) -> Result<Response<Body>> {
+    pub fn build<F>(&self, result: ResolveResult<F>) -> Result<Response<Body>>
+    where
+        F: AsyncRead + AsyncSeek + Send + Unpin + 'static,
+    {
         match result {
             ResolveResult::MethodNotMatched => HttpResponseBuilder::new()
                 .status(StatusCode::BAD_REQUEST)
@@ -96,18 +100,7 @@ impl<'a> ResponseBuilder<'a> {
                     .header(header::LOCATION, target)
                     .body(Body::empty())
             }
-            ResolveResult::Found(file, metadata, mime) => {
-                self.file_response_builder
-                    .build(file, metadata, mime.to_string())
-            }
-            ResolveResult::FoundEncoded(file, metadata, mime, encoding) => {
-                let mut res = self
-                    .file_response_builder
-                    .build(file, metadata, mime.to_string())?;
-                res.headers_mut()
-                    .insert(header::CONTENT_ENCODING, encoding.to_header_value());
-                Ok(res)
-            }
+            ResolveResult::Found(file) => self.file_response_builder.build(file),
         }
     }
 }
