@@ -7,41 +7,41 @@ use std::mem::MaybeUninit;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::vec;
-use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
 
 const BUF_SIZE: usize = 8 * 1024;
 
-/// Wraps a `tokio::fs::File`, and implements a stream of `Bytes`s.
-pub struct FileBytesStream {
-    file: File,
+/// Wraps an `AsyncRead`, like a tokio `File`, and implements a stream of `Bytes`s.
+pub struct FileBytesStream<F> {
+    file: F,
     buf: Box<[MaybeUninit<u8>; BUF_SIZE]>,
     remaining: u64,
 }
 
-impl FileBytesStream {
+impl<F> FileBytesStream<F> {
     /// Create a new stream from the given file.
-    pub fn new(file: File) -> FileBytesStream {
-        let buf = Box::new([MaybeUninit::uninit(); BUF_SIZE]);
-        FileBytesStream {
+    pub fn new(file: F) -> Self {
+        Self {
             file,
-            buf,
+            buf: Box::new([MaybeUninit::uninit(); BUF_SIZE]),
             remaining: u64::MAX,
         }
     }
 
     /// Create a new stream from the given file, reading up to `limit` bytes.
-    pub fn new_with_limit(file: File, limit: u64) -> FileBytesStream {
-        let buf = Box::new([MaybeUninit::uninit(); BUF_SIZE]);
-        FileBytesStream {
+    pub fn new_with_limit(file: F, limit: u64) -> Self {
+        Self {
             file,
-            buf,
+            buf: Box::new([MaybeUninit::uninit(); BUF_SIZE]),
             remaining: limit,
         }
     }
 }
 
-impl Stream for FileBytesStream {
+impl<F> Stream for FileBytesStream<F>
+where
+    F: AsyncRead + Unpin,
+{
     type Item = Result<Bytes, IoError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
@@ -69,7 +69,10 @@ impl Stream for FileBytesStream {
     }
 }
 
-impl FileBytesStream {
+impl<F> FileBytesStream<F>
+where
+    F: AsyncRead + Send + Unpin + 'static,
+{
     /// Create a Hyper `Body` from this stream.
     pub fn into_body(self) -> Body {
         Body::wrap_stream(self)
@@ -83,26 +86,26 @@ enum FileSeekState {
     Reading,
 }
 
-/// Wraps a `tokio::fs::File`, and implements a stream of `Bytes`s reading a portion of the
-/// file given by `range`.
-pub struct FileBytesStreamRange {
-    file_stream: FileBytesStream,
+/// Wraps an `AsyncRead + AsyncSeek`, like a tokio `File`, and implements a stream of `Bytes`s
+/// reading a portion of the file given by `range`.
+pub struct FileBytesStreamRange<F> {
+    file_stream: FileBytesStream<F>,
     seek_state: FileSeekState,
     start_offset: u64,
 }
 
-impl FileBytesStreamRange {
+impl<F> FileBytesStreamRange<F> {
     /// Create a new stream from the given file and range
-    pub fn new(file: File, range: HttpRange) -> FileBytesStreamRange {
-        FileBytesStreamRange {
+    pub fn new(file: F, range: HttpRange) -> Self {
+        Self {
             file_stream: FileBytesStream::new_with_limit(file, range.length),
             seek_state: FileSeekState::NeedSeek,
             start_offset: range.start,
         }
     }
 
-    fn without_initial_range(file: File) -> FileBytesStreamRange {
-        FileBytesStreamRange {
+    fn without_initial_range(file: F) -> Self {
+        Self {
             file_stream: FileBytesStream::new_with_limit(file, 0),
             seek_state: FileSeekState::NeedSeek,
             start_offset: 0,
@@ -110,7 +113,10 @@ impl FileBytesStreamRange {
     }
 }
 
-impl Stream for FileBytesStreamRange {
+impl<F> Stream for FileBytesStreamRange<F>
+where
+    F: AsyncRead + AsyncSeek + Unpin,
+{
     type Item = Result<Bytes, IoError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
@@ -138,19 +144,22 @@ impl Stream for FileBytesStreamRange {
     }
 }
 
-impl FileBytesStreamRange {
+impl<F> FileBytesStreamRange<F>
+where
+    F: AsyncRead + AsyncSeek + Send + Unpin + 'static,
+{
     /// Create a Hyper `Body` from this stream.
     pub fn into_body(self) -> Body {
         Body::wrap_stream(self)
     }
 }
 
-/// Wraps a `tokio::fs::File`, and implements a stream of `Bytes`s reading multiple portions of
-/// the file given by `ranges` using a chunked multipart/byteranges response.  A boundary is
-/// required to separate the chunked components and therefore needs to be unlikely to be in any
-/// file.
-pub struct FileBytesStreamMultiRange {
-    file_range: FileBytesStreamRange,
+/// Wraps an `AsyncRead + AsyncSeek`, like a tokio `File`,  and implements a stream of `Bytes`s
+/// reading multiple portions of the file given by `ranges` using a chunked multipart/byteranges
+/// response. A boundary is required to separate the chunked components and therefore needs to be
+/// unlikely to be in any file.
+pub struct FileBytesStreamMultiRange<F> {
+    file_range: FileBytesStreamRange<F>,
     range_iter: vec::IntoIter<HttpRange>,
     is_first_boundary: bool,
     completed: bool,
@@ -159,15 +168,10 @@ pub struct FileBytesStreamMultiRange {
     file_length: u64,
 }
 
-impl FileBytesStreamMultiRange {
+impl<F> FileBytesStreamMultiRange<F> {
     /// Create a new stream from the given file, ranges, boundary and file length.
-    pub fn new(
-        file: File,
-        ranges: Vec<HttpRange>,
-        boundary: String,
-        file_length: u64,
-    ) -> FileBytesStreamMultiRange {
-        FileBytesStreamMultiRange {
+    pub fn new(file: F, ranges: Vec<HttpRange>, boundary: String, file_length: u64) -> Self {
+        Self {
             file_range: FileBytesStreamRange::without_initial_range(file),
             range_iter: ranges.into_iter(),
             boundary,
@@ -268,7 +272,10 @@ fn render_multipart_header_end(read_buf: &mut ReadBuf<'_>, boundary: &str) {
     read_buf.put_slice(b"--\r\n");
 }
 
-impl Stream for FileBytesStreamMultiRange {
+impl<F> Stream for FileBytesStreamMultiRange<F>
+where
+    F: AsyncRead + AsyncSeek + Unpin,
+{
     type Item = Result<Bytes, IoError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
@@ -322,7 +329,10 @@ impl Stream for FileBytesStreamMultiRange {
     }
 }
 
-impl FileBytesStreamMultiRange {
+impl<F> FileBytesStreamMultiRange<F>
+where
+    F: AsyncRead + AsyncSeek + Send + Unpin + 'static,
+{
     /// Create a Hyper `Body` from this stream.
     pub fn into_body(self) -> Body {
         Body::wrap_stream(self)
