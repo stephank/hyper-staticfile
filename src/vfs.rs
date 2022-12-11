@@ -4,14 +4,16 @@ use std::{
     future::Future,
     io::{Cursor, Error, ErrorKind},
     path::{Component, Path, PathBuf},
+    pin::Pin,
+    task::{Context, Poll},
     time::SystemTime,
 };
 
-use futures_util::future::{ready, FutureExt, Ready};
+use futures_util::future::{ready, Ready};
 use hyper::body::Bytes;
 use tokio::{
     fs::{self, File},
-    task::spawn_blocking,
+    task::{spawn_blocking, JoinHandle},
 };
 
 #[cfg(windows)]
@@ -82,35 +84,58 @@ impl TokioFileOpener {
 
 impl FileOpener for TokioFileOpener {
     type File = File;
-    type Future = Box<dyn Future<Output = Result<FileWithMetadata<File>, Error>> + Send + Unpin>;
+    type Future = TokioFileFuture;
 
     fn open(&self, path: &Path) -> Self::Future {
         let mut full_path = self.root.clone();
         full_path.extend(path);
 
-        Box::new(
-            spawn_blocking(move || {
-                let mut opts = OpenOptions::new();
-                opts.read(true);
+        // Small perf gain: we do open + metadata in one go. If we used the tokio async functions
+        // here, that'd amount to two `spawn_blocking` calls behind the scenes.
+        let inner = spawn_blocking(move || {
+            let mut opts = OpenOptions::new();
+            opts.read(true);
 
-                // On Windows, we need to set this flag to be able to open directories.
-                #[cfg(windows)]
-                opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+            // On Windows, we need to set this flag to be able to open directories.
+            #[cfg(windows)]
+            opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
 
-                let handle = opts.open(full_path)?;
-                let metadata = handle.metadata()?;
-                Ok(FileWithMetadata {
-                    handle: File::from_std(handle),
-                    size: metadata.len(),
-                    modified: metadata.modified().ok(),
-                    is_dir: metadata.is_dir(),
-                })
+            let handle = opts.open(full_path)?;
+            let metadata = handle.metadata()?;
+            Ok(FileWithMetadata {
+                handle: File::from_std(handle),
+                size: metadata.len(),
+                modified: metadata.modified().ok(),
+                is_dir: metadata.is_dir(),
             })
-            .map(|res| match res {
-                Ok(res) => res,
-                Err(_) => Err(Error::new(ErrorKind::Other, "background task failed")),
-            }),
-        )
+        });
+
+        TokioFileFuture { inner }
+    }
+}
+
+/// Future type produced by `TokioFileOpener`.
+///
+/// This type mostly exists just to prevent a `Box<dyn Future>`.
+pub struct TokioFileFuture {
+    inner: JoinHandle<Result<FileWithMetadata<File>, Error>>,
+}
+
+impl Future for TokioFileFuture {
+    type Output = Result<FileWithMetadata<File>, Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // The task produces a result, but so does the `JoinHandle`, so this is a
+        // `Result<Result<..>>`. We map the `JoinHandle` error to an IO error, so that we can
+        // flatten the results. This is similar to what tokio does, but that just uses `Map` and
+        // async functions (with an anonymous future type).
+        match Pin::new(&mut self.inner).poll(cx) {
+            Poll::Ready(Ok(res)) => Poll::Ready(res),
+            Poll::Ready(Err(_)) => {
+                Poll::Ready(Err(Error::new(ErrorKind::Other, "background task failed")))
+            }
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
