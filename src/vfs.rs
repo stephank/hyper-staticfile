@@ -6,7 +6,6 @@ use std::{
     future::Future,
     io::{Cursor, Error, ErrorKind},
     path::{Component, Path, PathBuf},
-    sync::Arc,
     time::SystemTime,
 };
 use tokio::{
@@ -116,31 +115,46 @@ impl FileOpener for TokioFileOpener {
 
 type MemoryFileMap = HashMap<PathBuf, FileWithMetadata<Bytes>>;
 
-/// Builder for a `MemoryFs`.
-pub struct MemoryFsBuilder {
+/// An in-memory virtual filesystem.
+///
+/// This type implements `FileOpener`, and can be directly used in `Static::with_opener`, for example.
+#[derive(Default)]
+pub struct MemoryFs {
     files: MemoryFileMap,
 }
 
-impl Default for MemoryFsBuilder {
-    fn default() -> Self {
-        let mut files = MemoryFileMap::new();
+impl MemoryFs {
+    /// Initialize a `MemoryFs` from a directory.
+    ///
+    /// This loads all files and their contents into memory. Symlinks are followed.
+    pub async fn from_dir(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let mut fs = Self::default();
 
-        // Create a top-level directory entry.
-        files.insert(
-            PathBuf::new(),
-            FileWithMetadata {
-                handle: Bytes::new(),
-                size: 0,
-                modified: None,
-                is_dir: true,
-            },
-        );
+        // Pending directories to scan, as: `(real path, virtual path)`
+        let mut dirs = vec![(path.as_ref().to_path_buf(), PathBuf::new())];
+        while let Some((dir, base)) = dirs.pop() {
+            let mut iter = fs::read_dir(dir).await?;
+            while let Some(entry) = iter.next_entry().await? {
+                let metadata = entry.metadata().await?;
 
-        Self { files }
+                // Build the virtual path.
+                let mut out_path = base.to_path_buf();
+                out_path.push(entry.file_name());
+
+                if metadata.is_dir() {
+                    // Add to pending stack,
+                    dirs.push((entry.path(), out_path));
+                } else if metadata.is_file() {
+                    // Read file contents and create an entry.
+                    let data = fs::read(entry.path()).await?;
+                    fs.add(out_path, data.into(), metadata.modified().ok());
+                }
+            }
+        }
+
+        Ok(fs)
     }
-}
 
-impl MemoryFsBuilder {
     /// Add a file to the `MemoryFs`.
     ///
     /// This automatically creates directory entries leading up to the path. Any existing entries
@@ -185,61 +199,6 @@ impl MemoryFsBuilder {
         );
 
         self
-    }
-
-    /// Consume the builder and return the `MemoryFs`.
-    pub fn build(self) -> MemoryFs {
-        MemoryFs {
-            files: Arc::new(self.files),
-        }
-    }
-}
-
-/// An in-memory virtual filesystem.
-///
-/// This type implements `FileOpener`, and can be directly used in `Static::with_opener`, for example.
-#[derive(Default)]
-pub struct MemoryFs {
-    files: Arc<MemoryFileMap>,
-}
-
-impl MemoryFs {
-    /// Create a new builder.
-    ///
-    /// Alias for: `MemoryFsBuilder::default()`
-    pub fn builder() -> MemoryFsBuilder {
-        MemoryFsBuilder::default()
-    }
-
-    /// Initialize a `MemoryFs` from a directory.
-    ///
-    /// This loads all files and their contents into memory. Symlinks are followed.
-    pub async fn from_dir(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let mut builder = Self::builder();
-
-        // Pending directories to scan, as: `(real path, virtual path)`
-        let mut dirs = vec![(path.as_ref().to_path_buf(), PathBuf::new())];
-        while let Some((dir, base)) = dirs.pop() {
-            let mut iter = fs::read_dir(dir).await?;
-            while let Some(entry) = iter.next_entry().await? {
-                let metadata = entry.metadata().await?;
-
-                // Build the virtual path.
-                let mut out_path = base.to_path_buf();
-                out_path.push(entry.file_name());
-
-                if metadata.is_dir() {
-                    // Add to pending stack,
-                    dirs.push((entry.path(), out_path));
-                } else if metadata.is_file() {
-                    // Read file contents and create an entry.
-                    let data = fs::read(entry.path()).await?;
-                    builder.add(out_path, data.into(), metadata.modified().ok());
-                }
-            }
-        }
-
-        Ok(builder.build())
     }
 }
 
