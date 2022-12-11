@@ -1,13 +1,17 @@
-use http::response::Builder as ResponseBuilder;
-use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode};
-use http_range::HttpRange;
-use http_range::HttpRangeParseError;
-use rand::prelude::{thread_rng, SliceRandom};
-use std::fs::Metadata;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::fs::File;
 
-use super::{Body, FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange};
+use http::{
+    header, response::Builder as ResponseBuilder, HeaderMap, Method, Request, Response, Result,
+    StatusCode,
+};
+use http_range::{HttpRange, HttpRangeParseError};
+use rand::prelude::{thread_rng, SliceRandom};
+use tokio::io::{AsyncRead, AsyncSeek};
+
+use crate::{
+    util::{FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange},
+    Body, ResolvedFile,
+};
 
 /// Minimum duration since Unix epoch we accept for file modification time.
 ///
@@ -19,7 +23,7 @@ const MIN_VALID_MTIME: Duration = Duration::from_secs(2);
 const BOUNDARY_LENGTH: usize = 60;
 const BOUNDARY_CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-/// Utility to build responses for serving a `tokio::fs::File`.
+/// Utility to build responses for serving a file.
 ///
 /// This struct allows direct access to its fields, but these fields are typically initialized by
 /// the accessors, using the builder pattern. The fields are basically a bunch of settings that
@@ -110,17 +114,15 @@ impl FileResponseBuilder {
         self
     }
 
-    /// Build a response for the given file and metadata.
-    pub fn build(
-        &self,
-        file: File,
-        metadata: Metadata,
-        content_type: String,
-    ) -> Result<Response<Body>> {
+    /// Build a response for the given resolved file.
+    pub fn build<F>(&self, file: ResolvedFile<F>) -> Result<Response<Body<F>>>
+    where
+        F: AsyncRead + AsyncSeek + Send + Unpin + 'static,
+    {
         let mut res = ResponseBuilder::new();
 
         // Set `Last-Modified` and check `If-Modified-Since`.
-        let modified = metadata.modified().ok().filter(|v| {
+        let modified = file.modified.filter(|v| {
             v.duration_since(UNIX_EPOCH)
                 .ok()
                 .filter(|v| v >= &MIN_VALID_MTIME)
@@ -146,7 +148,7 @@ impl FileResponseBuilder {
 
                 let etag = format!(
                     "W/\"{0:x}-{1:x}.{2:x}\"",
-                    metadata.len(),
+                    file.size,
                     modified_unix.as_secs(),
                     modified_unix.subsec_nanos()
                 );
@@ -180,12 +182,12 @@ impl FileResponseBuilder {
         }
 
         if self.is_head {
-            res = res.header(header::CONTENT_LENGTH, format!("{}", metadata.len()));
+            res = res.header(header::CONTENT_LENGTH, format!("{}", file.size));
             return res.status(StatusCode::OK).body(Body::Empty);
         }
 
         let ranges = self.range.as_ref().filter(|_| range_cond_ok).and_then(|r| {
-            match HttpRange::parse(r, metadata.len()) {
+            match HttpRange::parse(r, file.size) {
                 Ok(r) => Some(Ok(r)),
                 Err(HttpRangeParseError::NoOverlap) => Some(Err(())),
                 Err(HttpRangeParseError::InvalidRange) => None,
@@ -207,11 +209,11 @@ impl FileResponseBuilder {
                 res = res
                     .header(
                         header::CONTENT_RANGE,
-                        content_range_header(&single_span, metadata.len()),
+                        content_range_header(&single_span, file.size),
                     )
                     .header(header::CONTENT_LENGTH, format!("{}", single_span.length));
 
-                let body_stream = FileBytesStreamRange::new(file, single_span);
+                let body_stream = FileBytesStreamRange::new(file.handle, single_span);
                 return res
                     .status(StatusCode::PARTIAL_CONTENT)
                     .body(Body::Range(body_stream));
@@ -233,9 +235,9 @@ impl FileResponseBuilder {
                 );
 
                 let mut body_stream =
-                    FileBytesStreamMultiRange::new(file, ranges, boundary, metadata.len());
-                if !content_type.is_empty() {
-                    body_stream.set_content_type(&content_type);
+                    FileBytesStreamMultiRange::new(file.handle, ranges, boundary, file.size);
+                if let Some(content_type) = file.content_type.as_ref() {
+                    body_stream.set_content_type(content_type);
                 }
 
                 res = res.header(
@@ -249,16 +251,19 @@ impl FileResponseBuilder {
             }
         }
 
-        res = res.header(header::CONTENT_LENGTH, format!("{}", metadata.len()));
-        if !content_type.is_empty() {
+        res = res.header(header::CONTENT_LENGTH, format!("{}", file.size));
+        if let Some(content_type) = file.content_type {
             res = res.header(header::CONTENT_TYPE, content_type);
+        }
+        if let Some(encoding) = file.encoding {
+            res = res.header(header::CONTENT_ENCODING, encoding.to_header_value());
         }
 
         // Stream the body.
         res.status(StatusCode::OK)
             .body(Body::Full(FileBytesStream::new_with_limit(
-                file,
-                metadata.len(),
+                file.handle,
+                file.size,
             )))
     }
 }

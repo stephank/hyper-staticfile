@@ -1,15 +1,19 @@
-use std::future::Future;
-use std::io::{Cursor, Error as IoError, Read, Write};
-use std::process::Command;
-use std::time::{Duration, SystemTime};
-use std::{fs, str};
+use std::{
+    fs,
+    future::Future,
+    io::{Cursor, Error as IoError, Read, Write},
+    process::Command,
+    str,
+    time::{Duration, SystemTime},
+};
 
 use http::{header, Request, StatusCode};
 use http_body_util::BodyExt;
 use httpdate::fmt_http_date;
 use hyper::body::Buf;
-use hyper_staticfile::{Body, Static};
+use hyper_staticfile::{vfs::MemoryFs, AcceptEncoding, Body, Encoding, Static};
 use tempdir::TempDir;
+use tokio::io::{AsyncRead, AsyncSeek};
 
 type Response = hyper::Response<Body>;
 type ResponseResult = Result<Response, IoError>;
@@ -20,6 +24,17 @@ struct Harness {
 }
 impl Harness {
     fn new(files: Vec<(&str, &str)>) -> Harness {
+        let dir = Self::create_temp_dir(files);
+
+        let mut static_ = Static::new(dir.path());
+        static_
+            .cache_headers(Some(3600))
+            .allowed_encodings(AcceptEncoding::all());
+
+        Harness { dir, static_ }
+    }
+
+    fn create_temp_dir(files: Vec<(&str, &str)>) -> TempDir {
         let dir = TempDir::new("hyper-staticfile-tests").unwrap();
         for (subpath, contents) in files {
             let fullpath = dir.path().join(subpath);
@@ -28,11 +43,7 @@ impl Harness {
                 .and_then(|mut file| file.write_all(contents.as_bytes()))
                 .expect("failed to write fixtures");
         }
-
-        let mut static_ = Static::new(dir.path().clone());
-        static_.cache_headers(Some(3600));
-
-        Harness { dir, static_ }
+        dir
     }
 
     fn append(&self, subpath: &str, content: &str) {
@@ -58,9 +69,12 @@ impl Harness {
     }
 }
 
-async fn read_body(req: Response) -> String {
+async fn read_body<F>(res: hyper::Response<Body<F>>) -> String
+where
+    F: AsyncRead + AsyncSeek + Unpin,
+{
     let mut body = String::new();
-    req.into_body()
+    res.into_body()
         .collect()
         .await
         .unwrap()
@@ -407,6 +421,64 @@ async fn serves_requested_range_not_satisfiable_when_at_end() {
 
     let res = harness.request(req).await.unwrap();
     assert_eq!(res.status(), hyper::StatusCode::RANGE_NOT_SATISFIABLE);
+}
+
+#[tokio::test]
+async fn serves_gzip() {
+    let harness = Harness::new(vec![
+        ("file1.html", "this is file1"),
+        ("file1.html.gz", "fake gzip compression"),
+    ]);
+    let req = Request::builder()
+        .uri("/file1.html")
+        .header(header::ACCEPT_ENCODING, "gzip")
+        .body(())
+        .expect("unable to build request");
+
+    let res = harness.request(req).await.unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_ENCODING),
+        Some(&Encoding::Gzip.to_header_value())
+    );
+    assert_eq!(read_body(res).await, "fake gzip compression");
+}
+
+#[tokio::test]
+async fn serves_br() {
+    let harness = Harness::new(vec![
+        ("file1.html", "this is file1"),
+        ("file1.html.br", "fake brotli compression"),
+        ("file1.html.gz", "fake gzip compression"),
+    ]);
+    let req = Request::builder()
+        .uri("/file1.html")
+        .header(header::ACCEPT_ENCODING, "br;q=1.0, gzip;q=0.5")
+        .body(())
+        .expect("unable to build request");
+
+    let res = harness.request(req).await.unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_ENCODING),
+        Some(&Encoding::Br.to_header_value())
+    );
+    assert_eq!(read_body(res).await, "fake brotli compression");
+}
+
+#[tokio::test]
+async fn test_memory_fs() {
+    let dir = Harness::create_temp_dir(vec![("foobar/file1.html", "this is file1")]);
+    let fs = MemoryFs::from_dir(dir.path())
+        .await
+        .expect("MemoryFs failed");
+    dir.close().expect("tempdir cleanup failed");
+
+    let req = Request::builder()
+        .uri("/foobar/file1.html")
+        .body(())
+        .expect("unable to build request");
+
+    let res = Static::with_opener(fs).serve(req).await.unwrap();
+    assert_eq!(read_body(res).await, "this is file1");
 }
 
 #[cfg(target_os = "windows")]

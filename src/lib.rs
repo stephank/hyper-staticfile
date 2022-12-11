@@ -30,7 +30,7 @@
 //!
 //! ## Advanced usage
 //!
-//! The `Static` type is a simple wrapper for `resolve` and `ResponseBuilder`. You can achieve the
+//! The `Static` type is a simple wrapper for `Resolver` and `ResponseBuilder`. You can achieve the
 //! same by doing something similar to the following:
 //!
 //! ```rust
@@ -47,7 +47,9 @@
 //!         .unwrap();
 //!
 //!     // First, resolve the request. Returns a future for a `ResolveResult`.
-//!     let result = hyper_staticfile::resolve(&root, &request)
+//!     // A resolver can be cheaply cloned if necessary.
+//!     let result = hyper_staticfile::Resolver::new(root)
+//!         .resolve_request(&request)
 //!         .await
 //!         .unwrap();
 //!
@@ -82,6 +84,9 @@ mod resolve;
 mod response_builder;
 mod service;
 mod util;
+
+/// Types to implement a custom (virtual) filesystem to serve files from.
+pub mod vfs;
 
 pub use crate::resolve::*;
 pub use crate::response_builder::*;

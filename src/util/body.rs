@@ -6,27 +6,34 @@ use std::{
 
 use futures_util::stream::Stream;
 use hyper::body::{Bytes, Frame};
+use tokio::{
+    fs::File,
+    io::{AsyncRead, AsyncSeek},
+};
 
-use super::{FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange};
+use crate::util::{FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange};
 
 /// Hyper Body implementation for the various types of streams used in static serving.
-pub enum Body {
+pub enum Body<F = File> {
     /// No response body.
     Empty,
     /// Serve a complete file.
-    Full(FileBytesStream),
+    Full(FileBytesStream<F>),
     /// Serve a range from a file.
-    Range(FileBytesStreamRange),
+    Range(FileBytesStreamRange<F>),
     /// Serve multiple ranges from a file.
-    MultiRange(FileBytesStreamMultiRange),
+    MultiRange(FileBytesStreamMultiRange<F>),
 }
 
-impl hyper::body::Body for Body {
+impl<F> hyper::body::Body for Body<F>
+where
+    F: AsyncRead + AsyncSeek + Unpin,
+{
     type Data = Bytes;
     type Error = IoError;
 
     fn poll_frame(
-        mut self: Pin<&mut Body>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, IoError>>> {
         let opt = ready!(match *self {
