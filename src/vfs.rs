@@ -1,8 +1,10 @@
 use std::{
+    cmp::min,
     collections::HashMap,
     fs::OpenOptions,
     future::Future,
     io::{Cursor, Error, ErrorKind},
+    mem::MaybeUninit,
     path::{Component, Path, PathBuf},
     pin::Pin,
     task::{Context, Poll},
@@ -13,6 +15,7 @@ use futures_util::future::{ready, Ready};
 use hyper::body::Bytes;
 use tokio::{
     fs::{self, File},
+    io::{AsyncRead, AsyncSeek, ReadBuf},
     task::{spawn_blocking, JoinHandle},
 };
 
@@ -20,6 +23,8 @@ use tokio::{
 use std::os::windows::fs::OpenOptionsExt;
 #[cfg(windows)]
 use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+
+const TOKIO_READ_BUF_SIZE: usize = 8 * 1024;
 
 /// Open file handle with metadata.
 ///
@@ -43,26 +48,108 @@ pub struct FileWithMetadata<F = File> {
 ///
 /// There is only the `open` operation, hence the name `FileOpener`. In practice, `open` must also
 /// collect some file metadata. (See the `FileWithMetadata` struct.)
-///
-/// In order to use an implementation with the other parts of this crate (ie. resolver and
-/// response builders), it must be marked `Send` and `Sync`, and must have `'static` lifetime.
-pub trait FileOpener {
+pub trait FileOpener: Send + Sync + 'static {
     /// File handle type.
-    ///
-    /// In order to use files with the other parts of this crate, the file handle must implement
-    /// the `AsyncRead` and `AsyncSeek` traits, must be marked `Send` and `Unpin`, and have
-    /// `'static` lifetime.
-    type File;
+    type File: IntoFileAccess;
 
     /// Future type that `open` returns.
-    ///
-    /// This future must be marked `Send` in order to be used with other parts of this crate.
-    type Future: Future<Output = Result<FileWithMetadata<Self::File>, Error>>;
+    type Future: Future<Output = Result<FileWithMetadata<Self::File>, Error>> + Send;
 
     /// Open a file and return a `FileWithMetadata`.
     ///
     /// It can be assumed the path is already sanitized at this point.
     fn open(&self, path: &Path) -> Self::Future;
+}
+
+/// Trait that converts a file handle into something that implements `FileAccess`.
+///
+/// This trait is called when streaming starts, and exists as a separate step so that buffer
+/// allocation doesn't have to happen until that point.
+pub trait IntoFileAccess: Send + Unpin + 'static {
+    /// Target type that implements `FileAccess`.
+    type Output: FileAccess;
+
+    /// Convert into a type that implements `FileAccess`.
+    fn into_file_access(self) -> Self::Output;
+}
+
+/// Trait that implements all the necessary file access methods used for serving files.
+///
+/// This trait exists as an alternative to `AsyncRead` that returns a `Bytes` directly, potentially
+/// eliminating a copy. Unlike `AsyncRead`, this does mean the implementation is responsible for
+/// providing the read buffer.
+pub trait FileAccess: AsyncSeek + Send + Unpin + 'static {
+    /// Attempts to read from the file.
+    ///
+    /// If no data is available for reading, the method returns `Poll::Pending` and arranges for
+    /// the current task (via `cx.waker()`) to receive a notification when the object becomes
+    /// readable or is closed.
+    ///
+    /// An empty `Bytes` return value indicates EOF.
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        len: usize,
+    ) -> Poll<Result<Bytes, Error>>;
+}
+
+//
+// Tokio File implementation
+//
+
+impl IntoFileAccess for File {
+    type Output = TokioFileAccess;
+
+    fn into_file_access(self) -> Self::Output {
+        TokioFileAccess {
+            file: self,
+            read_buf: Box::new([MaybeUninit::uninit(); TOKIO_READ_BUF_SIZE]),
+        }
+    }
+}
+
+/// Struct that wraps a tokio `File` to implement `FileAccess`.
+pub struct TokioFileAccess {
+    file: File,
+    read_buf: Box<[MaybeUninit<u8>; TOKIO_READ_BUF_SIZE]>,
+}
+
+impl AsyncSeek for TokioFileAccess {
+    fn start_seek(mut self: Pin<&mut Self>, position: std::io::SeekFrom) -> std::io::Result<()> {
+        Pin::new(&mut self.file).start_seek(position)
+    }
+
+    fn poll_complete(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<u64>> {
+        Pin::new(&mut self.file).poll_complete(cx)
+    }
+}
+
+impl FileAccess for TokioFileAccess {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        len: usize,
+    ) -> Poll<Result<Bytes, Error>> {
+        let Self {
+            ref mut file,
+            ref mut read_buf,
+        } = *self;
+
+        let len = min(len, read_buf.len()) as usize;
+        let mut read_buf = ReadBuf::uninit(&mut read_buf[..len]);
+        match Pin::new(file).poll_read(cx, &mut read_buf) {
+            Poll::Ready(Ok(())) => {
+                let filled = read_buf.filled();
+                if filled.is_empty() {
+                    Poll::Ready(Ok(Bytes::new()))
+                } else {
+                    Poll::Ready(Ok(Bytes::copy_from_slice(filled)))
+                }
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
 }
 
 /// Filesystem implementation that uses `tokio::fs`.
@@ -139,7 +226,42 @@ impl Future for TokioFileFuture {
     }
 }
 
+//
+// In-memory implementation
+//
+
 type MemoryFileMap = HashMap<PathBuf, FileWithMetadata<Bytes>>;
+
+impl IntoFileAccess for Cursor<Bytes> {
+    type Output = Self;
+
+    fn into_file_access(self) -> Self::Output {
+        // No read buffer required. We can simply create subslices.
+        self
+    }
+}
+
+impl FileAccess for Cursor<Bytes> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        len: usize,
+    ) -> Poll<Result<Bytes, Error>> {
+        let pos = self.position();
+        let slice = (*self).get_ref();
+
+        // The position could technically be out of bounds, so don't panic...
+        if pos > slice.len() as u64 {
+            return Poll::Ready(Ok(Bytes::new()));
+        }
+
+        let start = pos as usize;
+        let amt = min(slice.len() - start, len);
+        // Add won't overflow because of pos check above.
+        let end = start + amt;
+        Poll::Ready(Ok(slice.slice(start..end)))
+    }
+}
 
 /// An in-memory virtual filesystem.
 ///

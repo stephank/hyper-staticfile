@@ -1,9 +1,10 @@
-use crate::resolve::ResolveResult;
-use crate::util::FileResponseBuilder;
-use http::response::Builder as HttpResponseBuilder;
-use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode, Uri};
+use http::{
+    header, response::Builder as HttpResponseBuilder, HeaderMap, Method, Request, Response, Result,
+    StatusCode, Uri,
+};
 use hyper::Body;
-use tokio::io::{AsyncRead, AsyncSeek};
+
+use crate::{resolve::ResolveResult, util::FileResponseBuilder, vfs::IntoFileAccess};
 
 /// Utility to build the default response for a `resolve` result.
 ///
@@ -73,10 +74,7 @@ impl<'a> ResponseBuilder<'a> {
     ///
     /// This function may error if it response could not be constructed, but this should be a
     /// seldom occurrence.
-    pub fn build<F>(&self, result: ResolveResult<F>) -> Result<Response<Body>>
-    where
-        F: AsyncRead + AsyncSeek + Send + Unpin + 'static,
-    {
+    pub fn build<F: IntoFileAccess>(&self, result: ResolveResult<F>) -> Result<Response<Body>> {
         match result {
             ResolveResult::MethodNotMatched => HttpResponseBuilder::new()
                 .status(StatusCode::BAD_REQUEST)

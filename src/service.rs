@@ -1,13 +1,18 @@
-use crate::vfs::{FileOpener, TokioFileOpener};
-use crate::{AcceptEncoding, Resolver, ResponseBuilder};
+use std::{
+    future::Future,
+    io::Error as IoError,
+    path::PathBuf,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
 use http::{Request, Response};
 use hyper::{service::Service, Body};
-use std::future::Future;
-use std::io::Error as IoError;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncSeek};
+
+use crate::{
+    vfs::{FileOpener, TokioFileOpener},
+    AcceptEncoding, Resolver, ResponseBuilder,
+};
 
 /// High-level interface for serving static files.
 ///
@@ -43,11 +48,7 @@ impl Static<TokioFileOpener> {
     }
 }
 
-impl<O> Static<O>
-where
-    O: FileOpener,
-    O::File: AsyncRead + AsyncSeek + Send + Unpin + 'static,
-{
+impl<O: FileOpener> Static<O> {
     /// Create a new instance of `Static` with the given root directory.
     pub fn with_opener(opener: O) -> Self {
         Self {
@@ -95,9 +96,7 @@ impl<O> Clone for Static<O> {
 
 impl<O, B> Service<Request<B>> for Static<O>
 where
-    O: FileOpener + Send + Sync + 'static,
-    O::File: AsyncRead + AsyncSeek + Send + Unpin + 'static,
-    O::Future: Send,
+    O: FileOpener,
     B: Send + Sync + 'static,
 {
     type Response = Response<Body>;

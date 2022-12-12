@@ -1,13 +1,19 @@
-use crate::util::RequestedPath;
-use crate::vfs::{FileOpener, FileWithMetadata, TokioFileOpener};
+use std::{
+    io::{Error as IoError, ErrorKind as IoErrorKind},
+    ops::BitAnd,
+    path::PathBuf,
+    sync::Arc,
+    time::SystemTime,
+};
+
 use http::{header, HeaderValue, Method, Request};
 use mime_guess::MimeGuess;
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::ops::BitAnd;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::SystemTime;
 use tokio::fs::File;
+
+use crate::{
+    util::RequestedPath,
+    vfs::{FileOpener, FileWithMetadata, TokioFileOpener},
+};
 
 /// Struct containing all the required data to serve a file.
 #[derive(Debug)]
