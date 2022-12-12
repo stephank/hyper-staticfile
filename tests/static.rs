@@ -465,19 +465,30 @@ async fn serves_br() {
 
 #[tokio::test]
 async fn test_memory_fs() {
-    let dir = Harness::create_temp_dir(vec![("foobar/file1.html", "this is file1")]);
+    let dir = Harness::create_temp_dir(vec![
+        ("index.html", "root index"),
+        ("nested/index.html", "nested index"),
+    ]);
     let fs = MemoryFs::from_dir(dir.path())
         .await
         .expect("MemoryFs failed");
     dir.close().expect("tempdir cleanup failed");
 
+    let static_ = Static::with_opener(fs);
+
     let req = Request::builder()
-        .uri("/foobar/file1.html")
+        .uri("/")
         .body(())
         .expect("unable to build request");
+    let res = static_.clone().serve(req).await.unwrap();
+    assert_eq!(read_body(res).await, "root index");
 
-    let res = Static::with_opener(fs).serve(req).await.unwrap();
-    assert_eq!(read_body(res).await, "this is file1");
+    let req = Request::builder()
+        .uri("/nested/")
+        .body(())
+        .expect("unable to build request");
+    let res = static_.serve(req).await.unwrap();
+    assert_eq!(read_body(res).await, "nested index");
 }
 
 #[cfg(target_os = "windows")]

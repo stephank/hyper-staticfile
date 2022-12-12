@@ -266,9 +266,27 @@ impl FileAccess for Cursor<Bytes> {
 /// An in-memory virtual filesystem.
 ///
 /// This type implements `FileOpener`, and can be directly used in `Static::with_opener`, for example.
-#[derive(Default)]
 pub struct MemoryFs {
     files: MemoryFileMap,
+}
+
+impl Default for MemoryFs {
+    fn default() -> Self {
+        let mut files = MemoryFileMap::new();
+
+        // Create a top-level directory entry.
+        files.insert(
+            PathBuf::new(),
+            FileWithMetadata {
+                handle: Bytes::new(),
+                size: 0,
+                modified: None,
+                is_dir: true,
+            },
+        );
+
+        Self { files }
+    }
 }
 
 impl MemoryFs {
