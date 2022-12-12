@@ -70,15 +70,6 @@
 //! It's useful to sit between these two steps to implement custom 404 pages, for example. Your
 //! custom logic can override specific cases of `ResolveResult`, and fall back to the default
 //! behavior using `ResponseBuilder` if necessary.
-//!
-//! The `ResponseBuilder` in turn uses `FileResponseBuilder` to serve files that are found. The
-//! `FileResponseBuilder` can also be used directly if you have an existing open `tokio::fs::File`
-//! and want to serve it. It takes care of basic headers, 'not modified' responses, and streaming
-//! the file in the body.
-//!
-//! Finally, there's `FileBytesStream`, which is used by `FileResponseBuilder` to stream the file.
-//! This is a struct wrapping a `tokio::fs::File` and implementing a `futures::Stream` that
-//! produces `Bytes`s. It can be used for streaming a file in custom response.
 
 mod resolve;
 mod response_builder;
@@ -91,4 +82,4 @@ pub mod vfs;
 pub use crate::resolve::*;
 pub use crate::response_builder::*;
 pub use crate::service::*;
-pub use crate::util::{Body, FileBytesStream, FileResponseBuilder};
+pub use crate::util::Body;
