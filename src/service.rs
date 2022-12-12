@@ -2,11 +2,10 @@ use std::{future::Future, io::Error as IoError, path::PathBuf, pin::Pin};
 
 use http::{Request, Response};
 use hyper::service::Service;
-use tokio::io::{AsyncRead, AsyncSeek};
 
 use crate::{
     util::Body,
-    vfs::{FileOpener, TokioFileOpener},
+    vfs::{FileOpener, IntoFileAccess, TokioFileOpener},
     AcceptEncoding, Resolver, ResponseBuilder,
 };
 
@@ -44,11 +43,7 @@ impl Static<TokioFileOpener> {
     }
 }
 
-impl<O> Static<O>
-where
-    O: FileOpener,
-    O::File: AsyncRead + AsyncSeek + Send + Unpin + 'static,
-{
+impl<O: FileOpener> Static<O> {
     /// Create a new instance of `Static` with the given root directory.
     pub fn with_opener(opener: O) -> Self {
         Self {
@@ -70,7 +65,10 @@ where
     }
 
     /// Serve a request.
-    pub async fn serve<B>(self, request: Request<B>) -> Result<Response<Body<O::File>>, IoError> {
+    pub async fn serve<B>(
+        self,
+        request: Request<B>,
+    ) -> Result<Response<Body<<O::File as IntoFileAccess>::Output>>, IoError> {
         let Self {
             resolver,
             cache_headers,
@@ -96,12 +94,10 @@ impl<O> Clone for Static<O> {
 
 impl<O, B> Service<Request<B>> for Static<O>
 where
-    O: FileOpener + Send + Sync + 'static,
-    O::File: AsyncRead + AsyncSeek + Send + Unpin + 'static,
-    O::Future: Send,
+    O: FileOpener,
     B: Send + Sync + 'static,
 {
-    type Response = Response<Body<O::File>>;
+    type Response = Response<Body<<O::File as IntoFileAccess>::Output>>;
     type Error = IoError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 

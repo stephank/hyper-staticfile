@@ -11,9 +11,11 @@ use http::{header, Request, StatusCode};
 use http_body_util::BodyExt;
 use httpdate::fmt_http_date;
 use hyper::body::Buf;
-use hyper_staticfile::{vfs::MemoryFs, AcceptEncoding, Body, Encoding, Static};
+use hyper_staticfile::{
+    vfs::{FileAccess, MemoryFs},
+    AcceptEncoding, Body, Encoding, Static,
+};
 use tempdir::TempDir;
-use tokio::io::{AsyncRead, AsyncSeek};
 
 type Response = hyper::Response<Body>;
 type ResponseResult = Result<Response, IoError>;
@@ -69,10 +71,7 @@ impl Harness {
     }
 }
 
-async fn read_body<F>(res: hyper::Response<Body<F>>) -> String
-where
-    F: AsyncRead + AsyncSeek + Unpin,
-{
+async fn read_body<F: FileAccess>(res: hyper::Response<Body<F>>) -> String {
     let mut body = String::new();
     res.into_body()
         .collect()

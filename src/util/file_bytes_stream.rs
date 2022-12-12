@@ -1,7 +1,6 @@
 use std::{
-    cmp::min,
-    io::{Cursor, Error as IoError, SeekFrom, Write},
-    mem::MaybeUninit,
+    fmt::Write,
+    io::{Error as IoError, SeekFrom},
     pin::Pin,
     task::{Context, Poll},
     vec,
@@ -10,17 +9,12 @@ use std::{
 use futures_util::stream::Stream;
 use http_range::HttpRange;
 use hyper::body::Bytes;
-use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncSeek, ReadBuf},
-};
 
-const BUF_SIZE: usize = 8 * 1024;
+use crate::vfs::{FileAccess, TokioFileAccess};
 
 /// Wraps an `AsyncRead`, like a tokio `File`, and implements a stream of `Bytes`s.
-pub struct FileBytesStream<F = File> {
+pub struct FileBytesStream<F = TokioFileAccess> {
     file: F,
-    buf: Box<[MaybeUninit<u8>; BUF_SIZE]>,
     remaining: u64,
 }
 
@@ -29,7 +23,6 @@ impl<F> FileBytesStream<F> {
     pub fn new(file: F) -> Self {
         Self {
             file,
-            buf: Box::new([MaybeUninit::uninit(); BUF_SIZE]),
             remaining: u64::MAX,
         }
     }
@@ -38,35 +31,27 @@ impl<F> FileBytesStream<F> {
     pub fn new_with_limit(file: F, limit: u64) -> Self {
         Self {
             file,
-            buf: Box::new([MaybeUninit::uninit(); BUF_SIZE]),
             remaining: limit,
         }
     }
 }
 
-impl<F> Stream for FileBytesStream<F>
-where
-    F: AsyncRead + Unpin,
-{
+impl<F: FileAccess> Stream for FileBytesStream<F> {
     type Item = Result<Bytes, IoError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let Self {
             ref mut file,
-            ref mut buf,
             ref mut remaining,
         } = *self;
 
-        let max_read_length = min(*remaining, buf.len() as u64) as usize;
-        let mut read_buf = ReadBuf::uninit(&mut buf[..max_read_length]);
-        match Pin::new(file).poll_read(cx, &mut read_buf) {
-            Poll::Ready(Ok(())) => {
-                let filled = read_buf.filled();
-                *remaining -= filled.len() as u64;
-                if filled.is_empty() {
+        match Pin::new(file).poll_read(cx, *remaining as usize) {
+            Poll::Ready(Ok(buf)) => {
+                *remaining -= buf.len() as u64;
+                if buf.is_empty() {
                     Poll::Ready(None)
                 } else {
-                    Poll::Ready(Some(Ok(Bytes::copy_from_slice(filled))))
+                    Poll::Ready(Some(Ok(buf)))
                 }
             }
             Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
@@ -84,7 +69,7 @@ enum FileSeekState {
 
 /// Wraps an `AsyncRead + AsyncSeek`, like a tokio `File`, and implements a stream of `Bytes`s
 /// reading a portion of the file given by `range`.
-pub struct FileBytesStreamRange<F = File> {
+pub struct FileBytesStreamRange<F = TokioFileAccess> {
     file_stream: FileBytesStream<F>,
     seek_state: FileSeekState,
     start_offset: u64,
@@ -109,10 +94,7 @@ impl<F> FileBytesStreamRange<F> {
     }
 }
 
-impl<F> Stream for FileBytesStreamRange<F>
-where
-    F: AsyncRead + AsyncSeek + Unpin,
-{
+impl<F: FileAccess> Stream for FileBytesStreamRange<F> {
     type Item = Result<Bytes, IoError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
@@ -144,7 +126,7 @@ where
 /// reading multiple portions of the file given by `ranges` using a chunked multipart/byteranges
 /// response. A boundary is required to separate the chunked components and therefore needs to be
 /// unlikely to be in any file.
-pub struct FileBytesStreamMultiRange<F = File> {
+pub struct FileBytesStreamMultiRange<F = TokioFileAccess> {
     file_range: FileBytesStreamRange<F>,
     range_iter: vec::IntoIter<HttpRange>,
     is_first_boundary: bool,
@@ -174,11 +156,9 @@ impl<F> FileBytesStreamMultiRange<F> {
     }
 
     /// Computes the length of the body for the multi-range response being produced by this
-    /// `FileBytesStreamMultiRange`.  This function is required to be mutable because it temporarily
-    /// uses pre-allocated buffers.
-    pub fn compute_length(&mut self) -> u64 {
+    /// `FileBytesStreamMultiRange`.
+    pub fn compute_length(&self) -> u64 {
         let Self {
-            ref mut file_range,
             ref range_iter,
             ref boundary,
             ref content_type,
@@ -189,79 +169,53 @@ impl<F> FileBytesStreamMultiRange<F> {
         let mut total_length = 0;
         let mut is_first = true;
         for range in range_iter.as_slice() {
-            let mut read_buf = ReadBuf::uninit(&mut file_range.file_stream.buf[..]);
-            render_multipart_header(
-                &mut read_buf,
-                boundary,
-                content_type,
-                *range,
-                is_first,
-                file_length,
-            );
+            let header =
+                render_multipart_header(boundary, content_type, *range, is_first, file_length);
 
             is_first = false;
-            total_length += read_buf.filled().len() as u64;
+            total_length += header.as_bytes().len() as u64;
             total_length += range.length;
         }
 
-        let mut read_buf = ReadBuf::uninit(&mut file_range.file_stream.buf[..]);
-        render_multipart_header_end(&mut read_buf, boundary);
-        total_length += read_buf.filled().len() as u64;
+        let header = render_multipart_header_end(boundary);
+        total_length += header.as_bytes().len() as u64;
 
         total_length
     }
 }
 
 fn render_multipart_header(
-    read_buf: &mut ReadBuf<'_>,
     boundary: &str,
     content_type: &str,
     range: HttpRange,
     is_first: bool,
     file_length: u64,
-) {
+) -> String {
+    let mut buf = String::with_capacity(128);
     if !is_first {
-        read_buf.put_slice(b"\r\n");
+        buf.push_str("\r\n");
     }
-    read_buf.put_slice(b"--");
-    read_buf.put_slice(boundary.as_bytes());
-    read_buf.put_slice(b"\r\nContent-Range: bytes ");
-
-    // 64 is 20 (max length of 64 bit integer) * 3 + 4 (symbols, new line)
-    let mut tmp_buffer = [0; 64];
-    let mut tmp_storage = Cursor::new(&mut tmp_buffer[..]);
     write!(
-        &mut tmp_storage,
-        "{}-{}/{}\r\n",
+        &mut buf,
+        "--{boundary}\r\nContent-Range: bytes {}-{}/{file_length}\r\n",
         range.start,
         range.start + range.length - 1,
-        file_length,
     )
-    .expect("buffer unexpectedly too small");
-
-    let end_position = tmp_storage.position() as usize;
-    let tmp_storage = tmp_storage.into_inner();
-    read_buf.put_slice(&tmp_storage[..end_position]);
+    .expect("buffer write failed");
 
     if !content_type.is_empty() {
-        read_buf.put_slice(b"Content-Type: ");
-        read_buf.put_slice(content_type.as_bytes());
-        read_buf.put_slice(b"\r\n");
+        write!(&mut buf, "Content-Type: {content_type}\r\n").expect("buffer write failed");
     }
 
-    read_buf.put_slice(b"\r\n");
+    buf.push_str("\r\n");
+    buf
 }
 
-fn render_multipart_header_end(read_buf: &mut ReadBuf<'_>, boundary: &str) {
-    read_buf.put_slice(b"\r\n--");
-    read_buf.put_slice(boundary.as_bytes());
-    read_buf.put_slice(b"--\r\n");
+fn render_multipart_header_end(boundary: &str) -> String {
+    format!("\r\n--{boundary}--\r\n")
 }
 
-impl<F> Stream for FileBytesStreamMultiRange<F>
-where
-    F: AsyncRead + AsyncSeek + Unpin,
-{
+impl<F: FileAccess> Stream for FileBytesStreamMultiRange<F> {
     type Item = Result<Bytes, IoError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
@@ -285,9 +239,8 @@ where
                 None => {
                     *completed = true;
 
-                    let mut read_buf = ReadBuf::uninit(&mut file_range.file_stream.buf[..]);
-                    render_multipart_header_end(&mut read_buf, boundary);
-                    return Poll::Ready(Some(Ok(Bytes::copy_from_slice(read_buf.filled()))));
+                    let header = render_multipart_header_end(boundary);
+                    return Poll::Ready(Some(Ok(header.into())));
                 }
             };
 
@@ -298,17 +251,9 @@ where
             let cur_is_first = *is_first_boundary;
             *is_first_boundary = false;
 
-            let mut read_buf = ReadBuf::uninit(&mut file_range.file_stream.buf[..]);
-            render_multipart_header(
-                &mut read_buf,
-                boundary,
-                content_type,
-                range,
-                cur_is_first,
-                file_length,
-            );
-
-            return Poll::Ready(Some(Ok(Bytes::copy_from_slice(read_buf.filled()))));
+            let header =
+                render_multipart_header(boundary, content_type, range, cur_is_first, file_length);
+            return Poll::Ready(Some(Ok(header.into())));
         }
 
         Pin::new(file_range).poll_next(cx)

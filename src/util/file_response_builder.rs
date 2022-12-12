@@ -6,10 +6,10 @@ use http::{
 };
 use http_range::{HttpRange, HttpRangeParseError};
 use rand::prelude::{thread_rng, SliceRandom};
-use tokio::io::{AsyncRead, AsyncSeek};
 
 use crate::{
     util::{FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange},
+    vfs::IntoFileAccess,
     Body, ResolvedFile,
 };
 
@@ -115,10 +115,10 @@ impl FileResponseBuilder {
     }
 
     /// Build a response for the given resolved file.
-    pub fn build<F>(&self, file: ResolvedFile<F>) -> Result<Response<Body<F>>>
-    where
-        F: AsyncRead + AsyncSeek + Send + Unpin + 'static,
-    {
+    pub fn build<F: IntoFileAccess>(
+        &self,
+        file: ResolvedFile<F>,
+    ) -> Result<Response<Body<F::Output>>> {
         let mut res = ResponseBuilder::new();
 
         // Set `Last-Modified` and check `If-Modified-Since`.
@@ -213,7 +213,8 @@ impl FileResponseBuilder {
                     )
                     .header(header::CONTENT_LENGTH, format!("{}", single_span.length));
 
-                let body_stream = FileBytesStreamRange::new(file.handle, single_span);
+                let body_stream =
+                    FileBytesStreamRange::new(file.handle.into_file_access(), single_span);
                 return res
                     .status(StatusCode::PARTIAL_CONTENT)
                     .body(Body::Range(body_stream));
@@ -234,8 +235,12 @@ impl FileResponseBuilder {
                     format!("multipart/byteranges; boundary={}", boundary),
                 );
 
-                let mut body_stream =
-                    FileBytesStreamMultiRange::new(file.handle, ranges, boundary, file.size);
+                let mut body_stream = FileBytesStreamMultiRange::new(
+                    file.handle.into_file_access(),
+                    ranges,
+                    boundary,
+                    file.size,
+                );
                 if let Some(content_type) = file.content_type.as_ref() {
                     body_stream.set_content_type(content_type);
                 }
@@ -262,7 +267,7 @@ impl FileResponseBuilder {
         // Stream the body.
         res.status(StatusCode::OK)
             .body(Body::Full(FileBytesStream::new_with_limit(
-                file.handle,
+                file.handle.into_file_access(),
                 file.size,
             )))
     }

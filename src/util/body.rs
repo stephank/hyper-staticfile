@@ -6,15 +6,14 @@ use std::{
 
 use futures_util::stream::Stream;
 use hyper::body::{Bytes, Frame};
-use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncSeek},
+
+use crate::{
+    util::{FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange},
+    vfs::{FileAccess, TokioFileAccess},
 };
 
-use crate::util::{FileBytesStream, FileBytesStreamMultiRange, FileBytesStreamRange};
-
 /// Hyper Body implementation for the various types of streams used in static serving.
-pub enum Body<F = File> {
+pub enum Body<F = TokioFileAccess> {
     /// No response body.
     Empty,
     /// Serve a complete file.
@@ -25,10 +24,7 @@ pub enum Body<F = File> {
     MultiRange(FileBytesStreamMultiRange<F>),
 }
 
-impl<F> hyper::body::Body for Body<F>
-where
-    F: AsyncRead + AsyncSeek + Unpin,
-{
+impl<F: FileAccess> hyper::body::Body for Body<F> {
     type Data = Bytes;
     type Error = IoError;
 
