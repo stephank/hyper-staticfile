@@ -24,7 +24,7 @@ use crate::{
 ///
 /// Cloning this struct is a cheap operation.
 pub struct Static<O = TokioFileOpener> {
-    /// The root directory path to serve files from.
+    /// The resolver instance used to open files.
     pub resolver: Resolver<O>,
     /// Whether to send cache headers, and what lifespan to indicate.
     pub cache_headers: Option<u32>,

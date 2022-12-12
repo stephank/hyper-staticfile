@@ -13,7 +13,7 @@
 //! trait. It can be used as:
 //!
 //! ```rust
-//! // Instance of `Static` containing configuration.
+//! // Instance of `Static` containing configuration. Can be cheaply cloned.
 //! let static_ = hyper_staticfile::Static::new("my/doc/root/");
 //!
 //! // A dummy request, but normally obtained from Hyper.
@@ -38,8 +38,8 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     // Document root path.
-//!     let root = Path::new("my/doc/root/");
+//!     // Create a resolver. This can be cheaply cloned.
+//!     let resolver = hyper_staticfile::Resolver::new("my/doc/root/");
 //!
 //!     // A dummy request, but normally obtained from Hyper.
 //!     let request = http::Request::get("/foo/bar.txt")
@@ -47,11 +47,7 @@
 //!         .unwrap();
 //!
 //!     // First, resolve the request. Returns a future for a `ResolveResult`.
-//!     // A resolver can be cheaply cloned if necessary.
-//!     let result = hyper_staticfile::Resolver::new(root)
-//!         .resolve_request(&request)
-//!         .await
-//!         .unwrap();
+//!     let result = resolver.resolve_request(&request).await.unwrap();
 //!
 //!     // Then, build a response based on the result.
 //!     // The `ResponseBuilder` is typically a short-lived, per-request instance.
@@ -62,8 +58,8 @@
 //! }
 //! ```
 //!
-//! The `resolve` function tries to find the file in the root, and returns a future for the
-//! `ResolveResult` enum, which determines what kind of response should be sent. The
+//! The `resolve_request` method tries to find the file in the document root, and returns a future
+//! for the `ResolveResult` enum, which determines what kind of response should be sent. The
 //! `ResponseBuilder` is then used to create a default response. It holds some settings, and can be
 //! constructed using the builder pattern.
 //!
