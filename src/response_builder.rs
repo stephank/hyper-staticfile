@@ -1,5 +1,5 @@
 use crate::resolve::ResolveResult;
-use crate::util::FileResponseBuilder;
+use crate::util::{FileResponseBuilder, RequestedPath};
 use http::response::Builder as HttpResponseBuilder;
 use http::{header, HeaderMap, Method, Request, Response, Result, StatusCode, Uri};
 use hyper::Body;
@@ -84,7 +84,20 @@ impl<'a> ResponseBuilder<'a> {
                 .status(StatusCode::FORBIDDEN)
                 .body(Body::empty()),
             ResolveResult::IsDirectory => {
-                let mut target = self.path.to_owned();
+                // NOTE: We are doing an origin-relative redirect, but need to use the sanitized
+                // path in order to prevent a malicious redirect to `//foo` (schema-relative).
+                // With the current API, we have no other option here than to do sanitization
+                // again, but a future version may reuse the earlier sanitization result.
+                let resolved = RequestedPath::resolve(self.path);
+                let path = resolved.sanitized.to_string_lossy();
+
+                let mut target_len = path.len() + 2;
+                if let Some(ref query) = self.query {
+                    target_len += query.len() + 1;
+                }
+                let mut target = String::with_capacity(target_len);
+                target.push('/');
+                target.push_str(&path);
                 target.push('/');
                 if let Some(query) = self.query {
                     target.push('?');

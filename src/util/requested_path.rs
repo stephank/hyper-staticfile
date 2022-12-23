@@ -31,23 +31,19 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 /// Resolved request path.
 pub struct RequestedPath {
-    /// Fully resolved filesystem path of the request.
-    pub full_path: PathBuf,
+    /// Sanitized path of the request.
+    pub sanitized: PathBuf,
     /// Whether a directory was requested. (`original` ends with a slash.)
     pub is_dir_request: bool,
 }
 
 impl RequestedPath {
     /// Resolve the requested path to a full filesystem path, limited to the root.
-    pub fn resolve(root_path: impl Into<PathBuf>, request_path: &str) -> Self {
+    pub fn resolve(request_path: &str) -> Self {
         let is_dir_request = request_path.as_bytes().last() == Some(&b'/');
         let request_path = PathBuf::from(decode_percents(request_path));
-
-        let mut full_path = root_path.into();
-        full_path.extend(&normalize_path(&request_path));
-
         RequestedPath {
-            full_path,
+            sanitized: normalize_path(&request_path),
             is_dir_request,
         }
     }

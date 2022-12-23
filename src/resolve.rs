@@ -74,9 +74,12 @@ pub async fn resolve_path(
     request_path: &str,
 ) -> Result<ResolveResult, IoError> {
     let RequestedPath {
-        mut full_path,
+        sanitized,
         is_dir_request,
-    } = RequestedPath::resolve(root, request_path);
+    } = RequestedPath::resolve(request_path);
+
+    let mut full_path = root.into();
+    full_path.extend(&sanitized);
 
     let (file, metadata) = match open_with_metadata(&full_path).await {
         Ok(pair) => pair,

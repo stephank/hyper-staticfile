@@ -113,6 +113,19 @@ async fn redirects_if_trailing_slash_is_missing() {
 }
 
 #[tokio::test]
+async fn redirects_to_sanitized_path() {
+    let harness = Harness::new(vec![("dir/index.html", "this is index")]);
+
+    // Previous versions would base the redirect on the request path, but that is user input, and
+    // the user could construct a schema-relative redirect this way.
+    let res = harness.get("//dir").await.unwrap();
+    assert_eq!(res.status(), StatusCode::MOVED_PERMANENTLY);
+
+    let url = res.headers().get(header::LOCATION).unwrap();
+    assert_eq!(url, "/dir/");
+}
+
+#[tokio::test]
 async fn decodes_percent_notation() {
     let harness = Harness::new(vec![("has space.html", "file with funky chars")]);
 
