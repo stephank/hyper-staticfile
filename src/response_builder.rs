@@ -4,7 +4,11 @@ use http::{
 };
 use hyper::Body;
 
-use crate::{resolve::ResolveResult, util::FileResponseBuilder, vfs::IntoFileAccess};
+use crate::{
+    resolve::ResolveResult,
+    util::{FileResponseBuilder, RequestedPath},
+    vfs::IntoFileAccess,
+};
 
 /// Utility to build the default response for a `resolve` result.
 ///
@@ -86,8 +90,27 @@ impl<'a> ResponseBuilder<'a> {
                 .status(StatusCode::FORBIDDEN)
                 .body(Body::empty()),
             ResolveResult::IsDirectory => {
-                let mut target = self.path.to_owned();
+                // NOTE: We are doing an origin-relative redirect, but need to use the sanitized
+                // path in order to prevent a malicious redirect to `//foo` (schema-relative).
+                // With the current API, we have no other option here than to do sanitization
+                // again, but a future version may reuse the earlier sanitization result.
+                let resolved = RequestedPath::resolve(self.path);
+
+                let mut target_len = resolved.sanitized.as_os_str().len() + 2;
+                if let Some(ref query) = self.query {
+                    target_len += query.len() + 1;
+                }
+
+                let mut target = String::with_capacity(target_len);
                 target.push('/');
+                // On Windows, we can't just append the entire path, because it contains Windows
+                // path separators. Append per-component instead.
+                for component in resolved.sanitized.components() {
+                    target.push_str(&component.as_os_str().to_string_lossy());
+                    target.push('/');
+                }
+
+                // Preserve any query string from the original request.
                 if let Some(query) = self.query {
                     target.push('?');
                     target.push_str(query);

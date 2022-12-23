@@ -110,13 +110,32 @@ async fn returns_404_if_file_not_found() {
 
 #[tokio::test]
 async fn redirects_if_trailing_slash_is_missing() {
-    let harness = Harness::new(vec![("dir/index.html", "this is index")]);
+    let harness = Harness::new(vec![("foo/bar/index.html", "this is index")]);
 
-    let res = harness.get("/dir").await.unwrap();
+    let res = harness.get("/foo/bar").await.unwrap();
     assert_eq!(res.status(), StatusCode::MOVED_PERMANENTLY);
 
     let url = res.headers().get(header::LOCATION).unwrap();
-    assert_eq!(url, "/dir/");
+    assert_eq!(url, "/foo/bar/");
+}
+
+#[tokio::test]
+async fn redirects_to_sanitized_path() {
+    let harness = Harness::new(vec![("foo.org/bar/index.html", "this is index")]);
+
+    // Previous versions would base the redirect on the request path, but that is user input, and
+    // the user could construct a schema-relative redirect this way.
+    let res = harness.get("//foo.org/bar").await.unwrap();
+    assert_eq!(res.status(), StatusCode::MOVED_PERMANENTLY);
+
+    let url = res.headers().get(header::LOCATION).unwrap();
+    // TODO: The request path is apparently parsed differently on Windows, but at least the
+    // resulting redirect is still safe, and that's the important part.
+    if cfg!(target_os = "windows") {
+        assert_eq!(url, "/");
+    } else {
+        assert_eq!(url, "/foo.org/bar/");
+    }
 }
 
 #[tokio::test]
