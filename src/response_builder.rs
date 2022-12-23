@@ -91,9 +91,10 @@ impl<'a> ResponseBuilder<'a> {
             ResolveResult::PermissionDenied => HttpResponseBuilder::new()
                 .status(StatusCode::FORBIDDEN)
                 .body(Body::Empty),
-            ResolveResult::IsDirectory => {
-                let mut target = self.path.to_owned();
-                target.push('/');
+            ResolveResult::IsDirectory {
+                redirect_to: mut target,
+            } => {
+                // Preserve any query string from the original request.
                 if let Some(query) = self.query {
                     target.push('?');
                     target.push_str(query);
