@@ -81,9 +81,13 @@
 mod resolve;
 mod response_builder;
 mod service;
-mod util;
+
+/// Lower level utilities.
+pub mod util;
 
 pub use crate::resolve::*;
 pub use crate::response_builder::*;
 pub use crate::service::*;
+
+// For compatiblity. Removed in 0.10.
 pub use crate::util::{FileBytesStream, FileResponseBuilder};

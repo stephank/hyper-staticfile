@@ -5,5 +5,5 @@ mod requested_path;
 
 pub use self::file_bytes_stream::*;
 pub use self::file_response_builder::*;
-pub use self::open_with_metadata::*;
-pub use self::requested_path::*;
+pub(crate) use self::open_with_metadata::*;
+pub(crate) use self::requested_path::*;

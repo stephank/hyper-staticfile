@@ -83,8 +83,7 @@ enum FileSeekState {
     Reading,
 }
 
-/// Wraps a `tokio::fs::File`, and implements a stream of `Bytes`s reading a portion of the
-/// file given by `range`.
+/// Wraps a `tokio::fs::File` and implements a stream of `Bytes`s reading a portion of the file.
 pub struct FileBytesStreamRange {
     file_stream: FileBytesStream,
     seek_state: FileSeekState,
@@ -92,7 +91,7 @@ pub struct FileBytesStreamRange {
 }
 
 impl FileBytesStreamRange {
-    /// Create a new stream from the given file and range
+    /// Create a new stream from the given file and range.
     pub fn new(file: File, range: HttpRange) -> FileBytesStreamRange {
         FileBytesStreamRange {
             file_stream: FileBytesStream::new_with_limit(file, range.length),
@@ -145,10 +144,8 @@ impl FileBytesStreamRange {
     }
 }
 
-/// Wraps a `tokio::fs::File`, and implements a stream of `Bytes`s reading multiple portions of
-/// the file given by `ranges` using a chunked multipart/byteranges response.  A boundary is
-/// required to separate the chunked components and therefore needs to be unlikely to be in any
-/// file.
+/// Wraps a `tokio::fs::File` and implements a stream of `Bytes`s providing multiple ranges of the
+/// file contents in HTTP chunked transfer encoding.
 pub struct FileBytesStreamMultiRange {
     file_range: FileBytesStreamRange,
     range_iter: vec::IntoIter<HttpRange>,
@@ -161,6 +158,9 @@ pub struct FileBytesStreamMultiRange {
 
 impl FileBytesStreamMultiRange {
     /// Create a new stream from the given file, ranges, boundary and file length.
+    ///
+    /// A boundary is required to separate the chunked components and therefore needs to be
+    /// unlikely to be in any file.
     pub fn new(
         file: File,
         ranges: Vec<HttpRange>,
