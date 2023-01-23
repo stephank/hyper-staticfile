@@ -91,7 +91,7 @@ impl<'a> ResponseBuilder<'a> {
                 let resolved = RequestedPath::resolve(self.path);
 
                 let mut target_len = resolved.sanitized.as_os_str().len() + 2;
-                if let Some(ref query) = self.query {
+                if let Some(query) = self.query {
                     target_len += query.len() + 1;
                 }
 
