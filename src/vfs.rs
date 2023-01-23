@@ -101,10 +101,7 @@ impl IntoFileAccess for File {
     type Output = TokioFileAccess;
 
     fn into_file_access(self) -> Self::Output {
-        TokioFileAccess {
-            file: self,
-            read_buf: Box::new([MaybeUninit::uninit(); TOKIO_READ_BUF_SIZE]),
-        }
+        TokioFileAccess::new(self)
     }
 }
 
@@ -112,6 +109,16 @@ impl IntoFileAccess for File {
 pub struct TokioFileAccess {
     file: File,
     read_buf: Box<[MaybeUninit<u8>; TOKIO_READ_BUF_SIZE]>,
+}
+
+impl TokioFileAccess {
+    /// Create a new `TokioFileAccess` for a `File`.
+    pub fn new(file: File) -> Self {
+        TokioFileAccess {
+            file,
+            read_buf: Box::new([MaybeUninit::uninit(); TOKIO_READ_BUF_SIZE]),
+        }
+    }
 }
 
 impl AsyncSeek for TokioFileAccess {

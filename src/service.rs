@@ -4,9 +4,8 @@ use http::{Request, Response};
 use hyper::service::Service;
 
 use crate::{
-    util::Body,
     vfs::{FileOpener, IntoFileAccess, TokioFileOpener},
-    AcceptEncoding, Resolver, ResponseBuilder,
+    AcceptEncoding, Body, Resolver, ResponseBuilder,
 };
 
 /// High-level interface for serving static files.

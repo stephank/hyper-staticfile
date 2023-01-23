@@ -3,11 +3,7 @@ use http::{
     StatusCode, Uri,
 };
 
-use crate::{
-    resolve::ResolveResult,
-    util::{Body, FileResponseBuilder},
-    vfs::IntoFileAccess,
-};
+use crate::{resolve::ResolveResult, util::FileResponseBuilder, vfs::IntoFileAccess, Body};
 
 /// Utility to build the default response for a `resolve` result.
 ///

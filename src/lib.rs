@@ -67,15 +67,17 @@
 //! custom logic can override specific cases of `ResolveResult`, and fall back to the default
 //! behavior using `ResponseBuilder` if necessary.
 
+mod body;
 mod resolve;
 mod response_builder;
 mod service;
-mod util;
 
+/// Lower level utilities.
+pub mod util;
 /// Types to implement a custom (virtual) filesystem to serve files from.
 pub mod vfs;
 
+pub use crate::body::Body;
 pub use crate::resolve::*;
 pub use crate::response_builder::*;
 pub use crate::service::*;
-pub use crate::util::Body;

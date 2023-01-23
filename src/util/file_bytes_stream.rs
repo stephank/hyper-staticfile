@@ -12,7 +12,7 @@ use hyper::body::Bytes;
 
 use crate::vfs::{FileAccess, TokioFileAccess};
 
-/// Wraps an `AsyncRead`, like a tokio `File`, and implements a stream of `Bytes`s.
+/// Wraps a `FileAccess` and implements a stream of `Bytes`s.
 pub struct FileBytesStream<F = TokioFileAccess> {
     file: F,
     remaining: u64,
@@ -67,8 +67,7 @@ enum FileSeekState {
     Reading,
 }
 
-/// Wraps an `AsyncRead + AsyncSeek`, like a tokio `File`, and implements a stream of `Bytes`s
-/// reading a portion of the file given by `range`.
+/// Wraps a `FileAccess` and implements a stream of `Bytes`s reading a portion of the file.
 pub struct FileBytesStreamRange<F = TokioFileAccess> {
     file_stream: FileBytesStream<F>,
     seek_state: FileSeekState,
@@ -76,7 +75,7 @@ pub struct FileBytesStreamRange<F = TokioFileAccess> {
 }
 
 impl<F> FileBytesStreamRange<F> {
-    /// Create a new stream from the given file and range
+    /// Create a new stream from the given file and range.
     pub fn new(file: F, range: HttpRange) -> Self {
         Self {
             file_stream: FileBytesStream::new_with_limit(file, range.length),
@@ -122,10 +121,8 @@ impl<F: FileAccess> Stream for FileBytesStreamRange<F> {
     }
 }
 
-/// Wraps an `AsyncRead + AsyncSeek`, like a tokio `File`,  and implements a stream of `Bytes`s
-/// reading multiple portions of the file given by `ranges` using a chunked multipart/byteranges
-/// response. A boundary is required to separate the chunked components and therefore needs to be
-/// unlikely to be in any file.
+/// Wraps a `FileAccess` and implements a stream of `Bytes`s providing multiple ranges of the file
+/// contents in HTTP chunked transfer encoding.
 pub struct FileBytesStreamMultiRange<F = TokioFileAccess> {
     file_range: FileBytesStreamRange<F>,
     range_iter: vec::IntoIter<HttpRange>,
@@ -138,6 +135,9 @@ pub struct FileBytesStreamMultiRange<F = TokioFileAccess> {
 
 impl<F> FileBytesStreamMultiRange<F> {
     /// Create a new stream from the given file, ranges, boundary and file length.
+    ///
+    /// A boundary is required to separate the chunked components and therefore needs to be
+    /// unlikely to be in any file.
     pub fn new(file: F, ranges: Vec<HttpRange>, boundary: String, file_length: u64) -> Self {
         Self {
             file_range: FileBytesStreamRange::without_initial_range(file),
