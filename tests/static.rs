@@ -15,7 +15,7 @@ use hyper_staticfile::{
     vfs::{FileAccess, MemoryFs},
     AcceptEncoding, Body, Encoding, Static,
 };
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 type Response = hyper::Response<Body>;
 type ResponseResult = Result<Response, IoError>;
@@ -37,7 +37,7 @@ impl Harness {
     }
 
     fn create_temp_dir(files: Vec<(&str, &str)>) -> TempDir {
-        let dir = TempDir::new("hyper-staticfile-tests").unwrap();
+        let dir = TempDir::new().unwrap();
         for (subpath, contents) in files {
             let fullpath = dir.path().join(subpath);
             fs::create_dir_all(fullpath.parent().unwrap())
