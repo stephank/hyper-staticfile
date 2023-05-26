@@ -20,6 +20,10 @@ use crate::{
 pub struct ResolvedFile<F = File> {
     /// Open file handle.
     pub handle: F,
+    /// The resolved and sanitized path to the file.
+    /// For directory indexes, this includes `index.html`.
+    /// For pre-encoded files, this will include the compressed extension. (`.gz` or `.br`)
+    pub path: PathBuf,
     /// Size in bytes.
     pub size: u64,
     /// Last modification time.
@@ -33,11 +37,13 @@ pub struct ResolvedFile<F = File> {
 impl<F> ResolvedFile<F> {
     fn new(
         file: FileWithMetadata<F>,
+        path: PathBuf,
         content_type: Option<String>,
         encoding: Option<Encoding>,
     ) -> Self {
         Self {
             handle: file.handle,
+            path,
             size: file.size,
             modified: file.modified,
             content_type,
@@ -226,17 +232,19 @@ impl<O: FileOpener> Resolver<O> {
             if let Ok(file) = self.opener.open(br_path.as_ref()).await {
                 return Ok(ResolveResult::Found(ResolvedFile::new(
                     file,
+                    br_path.into(),
                     mime,
                     Some(Encoding::Br),
                 )));
             }
         }
         if accept_encoding.gzip {
-            let mut gzip_path = path.into_os_string();
+            let mut gzip_path = path.clone().into_os_string();
             gzip_path.push(".gz");
             if let Ok(file) = self.opener.open(gzip_path.as_ref()).await {
                 return Ok(ResolveResult::Found(ResolvedFile::new(
                     file,
+                    gzip_path.into(),
                     mime,
                     Some(Encoding::Gzip),
                 )));
@@ -244,7 +252,9 @@ impl<O: FileOpener> Resolver<O> {
         }
 
         // No pre-encoded file found, serve the original.
-        Ok(ResolveResult::Found(ResolvedFile::new(file, mime, None)))
+        Ok(ResolveResult::Found(ResolvedFile::new(
+            file, path, mime, None,
+        )))
     }
 }
 
