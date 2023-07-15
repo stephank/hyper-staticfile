@@ -100,7 +100,7 @@ where
     type Error = IoError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&mut self, request: Request<B>) -> Self::Future {
+    fn call(&self, request: Request<B>) -> Self::Future {
         Box::pin(self.clone().serve(request))
     }
 }
