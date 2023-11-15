@@ -142,7 +142,7 @@ impl FileAccess for TokioFileAccess {
             ref mut read_buf,
         } = *self;
 
-        let len = min(len, read_buf.len()) as usize;
+        let len = min(len, read_buf.len());
         let mut read_buf = ReadBuf::uninit(&mut read_buf[..len]);
         match Pin::new(file).poll_read(cx, &mut read_buf) {
             Poll::Ready(Ok(())) => {
