@@ -80,6 +80,20 @@ impl<O: FileOpener> Static<O> {
                 .expect("unable to build response")
         })
     }
+
+    /// Set up the files by extension for serving, it also will try to resolve the path without
+    /// extensions with this file type
+    ///
+    /// This supports to response `file.html` when request on `/path/to/file`, `/path/to/file.htm`,
+    /// or `/path/to/file.html`.
+    pub async fn serve_files_by_extension<B>(
+        mut self,
+        request: Request<B>,
+        file_extension: &'static str,
+    ) -> Result<Response<Body<<O::File as IntoFileAccess>::Output>>, IoError> {
+        self.resolver.set_extension(file_extension);
+        self.serve(request).await
+    }
 }
 
 impl<O> Clone for Static<O> {

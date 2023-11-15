@@ -39,9 +39,12 @@ pub struct RequestedPath {
 
 impl RequestedPath {
     /// Process a request path.
-    pub fn resolve(request_path: &str) -> Self {
+    pub fn resolve(request_path: &str, default_extension: Option<&'static str>) -> Self {
         let is_dir_request = request_path.as_bytes().last() == Some(&b'/');
-        let request_path = PathBuf::from(decode_percents(request_path));
+        let mut request_path = PathBuf::from(decode_percents(request_path));
+        if let Some(extension) = default_extension {
+            request_path.set_extension(extension);
+        }
         RequestedPath {
             sanitized: sanitize_path(&request_path),
             is_dir_request,

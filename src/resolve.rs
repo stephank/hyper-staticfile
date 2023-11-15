@@ -70,6 +70,9 @@ pub struct Resolver<O = TokioFileOpener> {
     ///
     /// Typically initialized with `AcceptEncoding::all()` or `AcceptEncoding::none()`.
     pub allowed_encodings: AcceptEncoding,
+
+    /// Only serve this type of files, and also will try file without extension.
+    pub file_extension: Option<&'static str>,
 }
 
 /// The result of `Resolver` methods.
@@ -114,7 +117,14 @@ impl<O: FileOpener> Resolver<O> {
         Self {
             opener: Arc::new(opener),
             allowed_encodings: AcceptEncoding::none(),
+            file_extension: None,
         }
+    }
+
+    /// Set up the file type by extension for resolving, it also will try to resolve the path
+    /// without extensions with this file type
+    pub fn set_extension(&mut self, extension: &'static str) {
+        self.file_extension = Some(extension);
     }
 
     /// Resolve the request by trying to find the file in the root.
@@ -162,7 +172,7 @@ impl<O: FileOpener> Resolver<O> {
         let RequestedPath {
             sanitized: mut path,
             is_dir_request,
-        } = RequestedPath::resolve(request_path);
+        } = RequestedPath::resolve(request_path, self.file_extension);
 
         // Try to open the file.
         let file = match self.opener.open(&path).await {
@@ -263,6 +273,7 @@ impl<O> Clone for Resolver<O> {
         Self {
             opener: self.opener.clone(),
             allowed_encodings: self.allowed_encodings,
+            file_extension: self.file_extension.clone()
         }
     }
 }
