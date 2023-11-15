@@ -264,7 +264,7 @@ async fn last_modified_is_gmt() {
     let mut file_path = harness.dir.path().to_path_buf();
     file_path.push("file1.html");
     let status = Command::new("touch")
-        .args(&["-t", "198510260122.00"])
+        .args(["-t", "198510260122.00"])
         .arg(file_path)
         .env("TZ", "UTC")
         .status()
@@ -288,7 +288,7 @@ async fn no_headers_for_invalid_mtime() {
     let mut file_path = harness.dir.path().to_path_buf();
     file_path.push("file1.html");
     let status = Command::new("touch")
-        .args(&["-t", "197001010000.01"])
+        .args(["-t", "197001010000.01"])
         .arg(file_path)
         .env("TZ", "UTC")
         .status()
