@@ -1,11 +1,13 @@
 use std::{
-    io::{Error as IoError, ErrorKind as IoErrorKind},
+    future::Future,
+    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult},
     ops::BitAnd,
     path::PathBuf,
     sync::Arc,
     time::SystemTime,
 };
 
+use futures_util::future::BoxFuture;
 use http::{header, HeaderValue, Method, Request};
 use mime_guess::MimeGuess;
 use tokio::fs::File;
@@ -70,6 +72,32 @@ pub struct Resolver<O = TokioFileOpener> {
     ///
     /// Typically initialized with `AcceptEncoding::all()` or `AcceptEncoding::none()`.
     pub allowed_encodings: AcceptEncoding,
+
+    /// Optional function that can rewrite requests.
+    ///
+    /// This function is called after parsing the request and before querying the filesystem.
+    ///
+    /// See `set_rewrite` for a convenience setter that simplifies these types.
+    pub rewrite: Option<Arc<dyn (Fn(ResolveParams) -> BoxRewriteFuture) + Send + Sync>>,
+}
+
+/// Future returned by a rewrite function. See `Resolver::set_rewrite`.
+pub type BoxRewriteFuture = BoxFuture<'static, IoResult<ResolveParams>>;
+
+/// All of the parsed request parameters used in resolving a file.
+///
+/// This struct is primarily used for `Resolver::rewrite` / `Resolver::set_rewrite`.
+#[derive(Debug, Clone)]
+pub struct ResolveParams {
+    /// Sanitized path of the request.
+    pub path: PathBuf,
+    /// Whether a directory was requested. (The request path ended with a slash.)
+    pub is_dir_request: bool,
+    /// Intersection of the request `Accept-Encoding` header and `allowed_encodings`.
+    ///
+    /// Only modify this field to disable encodings. Enabling additional encodings here may cause
+    /// a client to receive encodings it does not understand.
+    pub accept_encoding: AcceptEncoding,
 }
 
 /// The result of `Resolver` methods.
@@ -93,7 +121,7 @@ pub enum ResolveResult<F = File> {
 }
 
 /// Some IO errors are expected when serving files, and mapped to a regular result here.
-fn map_open_err<F>(err: IoError) -> Result<ResolveResult<F>, IoError> {
+fn map_open_err<F>(err: IoError) -> IoResult<ResolveResult<F>> {
     match err.kind() {
         IoErrorKind::NotFound => Ok(ResolveResult::NotFound),
         IoErrorKind::PermissionDenied => Ok(ResolveResult::PermissionDenied),
@@ -114,7 +142,30 @@ impl<O: FileOpener> Resolver<O> {
         Self {
             opener: Arc::new(opener),
             allowed_encodings: AcceptEncoding::none(),
+            rewrite: None,
         }
+    }
+
+    /// Configure a function that can rewrite requests.
+    ///
+    /// This function is called after parsing the request and before querying the filesystem.
+    ///
+    /// ```rust
+    /// let mut resolver = hyper_staticfile::Resolver::new("/");
+    /// resolver.set_rewrite(|mut params| async move {
+    ///     if params.path.extension() == Some("htm".as_ref()) {
+    ///         params.path.set_extension("html");
+    ///     }
+    ///     Ok(params)
+    /// });
+    /// ```
+    pub fn set_rewrite<R, F>(&mut self, rewrite: F) -> &mut Self
+    where
+        R: Future<Output = IoResult<ResolveParams>> + Send + 'static,
+        F: (Fn(ResolveParams) -> R) + Send + Sync + 'static,
+    {
+        self.rewrite = Some(Arc::new(move |params| Box::pin(rewrite(params))));
+        self
     }
 
     /// Resolve the request by trying to find the file in the root.
@@ -122,10 +173,7 @@ impl<O: FileOpener> Resolver<O> {
     /// The returned future may error for unexpected IO errors, passing on the `std::io::Error`.
     /// Certain expected IO errors are handled, though, and simply reflected in the result. These are
     /// `NotFound` and `PermissionDenied`.
-    pub async fn resolve_request<B>(
-        &self,
-        req: &Request<B>,
-    ) -> Result<ResolveResult<O::File>, IoError> {
+    pub async fn resolve_request<B>(&self, req: &Request<B>) -> IoResult<ResolveResult<O::File>> {
         // Handle only `GET`/`HEAD` and absolute paths.
         match *req.method() {
             Method::HEAD | Method::GET => {}
@@ -157,12 +205,26 @@ impl<O: FileOpener> Resolver<O> {
         &self,
         request_path: &str,
         accept_encoding: AcceptEncoding,
-    ) -> Result<ResolveResult<O::File>, IoError> {
+    ) -> IoResult<ResolveResult<O::File>> {
         // Sanitize input path.
-        let RequestedPath {
-            sanitized: mut path,
+        let requested_path = RequestedPath::resolve(request_path);
+
+        // Apply optional rewrite.
+        let ResolveParams {
+            mut path,
             is_dir_request,
-        } = RequestedPath::resolve(request_path);
+            accept_encoding,
+        } = {
+            let mut params = ResolveParams {
+                path: requested_path.sanitized,
+                is_dir_request: requested_path.is_dir_request,
+                accept_encoding,
+            };
+            if let Some(ref rewrite) = self.rewrite {
+                params = rewrite(params).await?;
+            }
+            params
+        };
 
         // Try to open the file.
         let file = match self.opener.open(&path).await {
@@ -219,7 +281,7 @@ impl<O: FileOpener> Resolver<O> {
         file: FileWithMetadata<O::File>,
         path: PathBuf,
         accept_encoding: AcceptEncoding,
-    ) -> Result<ResolveResult<O::File>, IoError> {
+    ) -> IoResult<ResolveResult<O::File>> {
         // Determine MIME-type. This needs to happen before we resolve a pre-encoded file.
         let mime = MimeGuess::from_path(&path)
             .first()
@@ -263,6 +325,7 @@ impl<O> Clone for Resolver<O> {
         Self {
             opener: self.opener.clone(),
             allowed_encodings: self.allowed_encodings,
+            rewrite: self.rewrite.clone(),
         }
     }
 }
