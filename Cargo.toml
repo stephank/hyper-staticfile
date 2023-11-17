@@ -25,7 +25,7 @@ url = "2.1.0"
 
 [dev-dependencies]
 hyper = { version = "1.0.0", features = ["http1", "server"] }
-hyper-util = { git = "https://github.com/hyperium/hyper-util.git" }
+hyper-util = { version = "0.1.1", features = ["tokio"] }
 http-body-util = "0.1.0"
 tempfile = "3"
 tokio = { version = "1.0.0", features = ["macros", "rt-multi-thread", "net", "io-util"] }
