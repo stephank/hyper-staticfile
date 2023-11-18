@@ -10,7 +10,7 @@ use crate::{
 
 /// High-level interface for serving static files.
 ///
-/// This services serves files based on the request path. The path is first sanitized, then mapped
+/// This struct serves files based on the request path. The path is first sanitized, then mapped
 /// to a file on the filesystem. If the path corresponds to a directory, it will try to look for a
 /// directory index.
 ///
@@ -43,7 +43,7 @@ impl Static<TokioFileOpener> {
 }
 
 impl<O: FileOpener> Static<O> {
-    /// Create a new instance of `Static` with the given root directory.
+    /// Create a new instance of `Static` with a custom file opener.
     pub fn with_opener(opener: O) -> Self {
         Self {
             resolver: Resolver::with_opener(opener),
