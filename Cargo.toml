@@ -1,6 +1,6 @@
 [package]
 name = "hyper-staticfile"
-version = "0.10.0-alpha.7"
+version = "0.10.0"
 authors = ["hyper-staticfile contributors"]
 description = "Static file serving for Hyper 1.0"
 repository = "https://github.com/stephank/hyper-staticfile"
