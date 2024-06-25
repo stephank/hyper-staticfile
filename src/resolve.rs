@@ -1,6 +1,6 @@
 use crate::util::{open_with_metadata, RequestedPath};
 use http::{Method, Request};
-use mime_guess::{Mime, MimeGuess};
+use mime_guess::{mime, Mime, MimeGuess};
 use std::fs::Metadata;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::path::PathBuf;
@@ -99,8 +99,8 @@ pub async fn resolve_path(
 
     // If not a directory, serve this file.
     if !is_dir_request {
-        let mime = MimeGuess::from_path(&full_path).first_or_octet_stream();
-        return Ok(ResolveResult::Found(file, metadata, mime));
+        let mimetype = set_charset(MimeGuess::from_path(&full_path).first_or_octet_stream());
+        return Ok(ResolveResult::Found(file, metadata, mimetype));
     }
 
     // Resolve the directory index.
@@ -116,6 +116,16 @@ pub async fn resolve_path(
     }
 
     // Serve this file.
-    let mime = MimeGuess::from_path(full_path).first_or_octet_stream();
-    Ok(ResolveResult::Found(file, metadata, mime))
+    let mimetype = MimeGuess::from_path(full_path).first_or_octet_stream();
+    Ok(ResolveResult::Found(file, metadata, mimetype))
+}
+
+fn set_charset(mimetype: Mime) -> Mime {
+    if mimetype == mime::APPLICATION_JAVASCRIPT {
+        return mime::APPLICATION_JAVASCRIPT_UTF_8;
+    }
+    if mimetype == mime::TEXT_JAVASCRIPT {
+        return "text/javascript; charset=utf-8".parse().unwrap();
+    }
+    mimetype
 }
