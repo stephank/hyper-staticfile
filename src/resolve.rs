@@ -9,7 +9,7 @@ use std::{
 
 use futures_util::future::BoxFuture;
 use http::{header, HeaderValue, Method, Request};
-use mime_guess::MimeGuess;
+use mime_guess::{mime, Mime, MimeGuess};
 use tokio::fs::File;
 
 use crate::{
@@ -283,9 +283,9 @@ impl<O: FileOpener> Resolver<O> {
         accept_encoding: AcceptEncoding,
     ) -> IoResult<ResolveResult<O::File>> {
         // Determine MIME-type. This needs to happen before we resolve a pre-encoded file.
-        let mime = MimeGuess::from_path(&path)
+        let mimetype = MimeGuess::from_path(&path)
             .first()
-            .map(|mime| mime.to_string());
+            .map(|mimetype| set_charset(mimetype).to_string());
 
         // Resolve pre-encoded files.
         if accept_encoding.br {
@@ -295,7 +295,7 @@ impl<O: FileOpener> Resolver<O> {
                 return Ok(ResolveResult::Found(ResolvedFile::new(
                     file,
                     br_path.into(),
-                    mime,
+                    mimetype,
                     Some(Encoding::Br),
                 )));
             }
@@ -307,7 +307,7 @@ impl<O: FileOpener> Resolver<O> {
                 return Ok(ResolveResult::Found(ResolvedFile::new(
                     file,
                     gzip_path.into(),
-                    mime,
+                    mimetype,
                     Some(Encoding::Gzip),
                 )));
             }
@@ -315,7 +315,7 @@ impl<O: FileOpener> Resolver<O> {
 
         // No pre-encoded file found, serve the original.
         Ok(ResolveResult::Found(ResolvedFile::new(
-            file, path, mime, None,
+            file, path, mimetype, None,
         )))
     }
 }
@@ -400,4 +400,14 @@ impl BitAnd for AcceptEncoding {
             br: self.br && rhs.br,
         }
     }
+}
+
+fn set_charset(mimetype: Mime) -> Mime {
+    if mimetype == mime::APPLICATION_JAVASCRIPT {
+        return mime::APPLICATION_JAVASCRIPT_UTF_8;
+    }
+    if mimetype == mime::TEXT_JAVASCRIPT {
+        return "text/javascript; charset=utf-8".parse().unwrap();
+    }
+    mimetype
 }
