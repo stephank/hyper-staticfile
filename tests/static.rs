@@ -212,6 +212,19 @@ async fn changes_content_type_on_extension() {
 }
 
 #[tokio::test]
+async fn changes_content_type_on_extension_js() {
+    let harness = Harness::new(vec![("file1.js", "this is file1")]);
+
+    let res = harness.get("/file1.js").await.unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_TYPE),
+        Some(&header::HeaderValue::from_static(
+            "application/javascript; charset=utf-8"
+        ))
+    );
+}
+
+#[tokio::test]
 async fn serves_file_with_old_if_modified_since() {
     let harness = Harness::new(vec![("file1.html", "this is file1")]);
 

@@ -4,6 +4,7 @@ use mime_guess::{Mime, MimeGuess};
 use std::fs::Metadata;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::path::PathBuf;
+use std::str::FromStr;
 use tokio::fs::File;
 
 /// The result of `resolve`.
@@ -99,7 +100,7 @@ pub async fn resolve_path(
 
     // If not a directory, serve this file.
     if !is_dir_request {
-        let mime = MimeGuess::from_path(&full_path).first_or_octet_stream();
+        let mime = set_charset(MimeGuess::from_path(&full_path).first_or_octet_stream());
         return Ok(ResolveResult::Found(file, metadata, mime));
     }
 
@@ -118,4 +119,12 @@ pub async fn resolve_path(
     // Serve this file.
     let mime = MimeGuess::from_path(full_path).first_or_octet_stream();
     Ok(ResolveResult::Found(file, metadata, mime))
+}
+
+fn set_charset(mime: Mime) -> Mime {
+    let javascript_mime: Mime = "application/javascript".parse().unwrap();
+    if mime == javascript_mime {
+        return Mime::from_str("application/javascript; charset=utf-8").unwrap();
+    }
+    mime
 }
