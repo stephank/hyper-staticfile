@@ -483,6 +483,28 @@ async fn serves_br() {
 }
 
 #[tokio::test]
+async fn serves_zstd() {
+    let harness = Harness::new(vec![
+        ("file1.html", "this is file1"),
+        ("file1.html.br", "fake brotli compression"),
+        ("file1.html.gz", "fake gzip compression"),
+        ("file1.html.zst", "fake zstd compression"),
+    ]);
+    let req = Request::builder()
+        .uri("/file1.html")
+        .header(header::ACCEPT_ENCODING, "zstd;q=1.0, br;q=0.8, gzip;q=0.5")
+        .body(())
+        .expect("unable to build request");
+
+    let res = harness.request(req).await.unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_ENCODING),
+        Some(&Encoding::Zstd.to_header_value())
+    );
+    assert_eq!(read_body(res).await, "fake zstd compression");
+}
+
+#[tokio::test]
 async fn test_memory_fs() {
     let dir = Harness::create_temp_dir(vec![
         ("index.html", "root index"),
