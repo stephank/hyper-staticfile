@@ -204,6 +204,7 @@ impl FileResponseBuilder {
                 }
             };
 
+            #[allow(clippy::comparison_chain)]
             if ranges.len() == 1 {
                 let single_span = ranges[0];
                 res = res
