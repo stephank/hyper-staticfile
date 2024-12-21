@@ -295,7 +295,7 @@ impl<O: FileOpener> Resolver<O> {
                 return Ok(ResolveResult::Found(ResolvedFile::new(
                     file,
                     zstd_path.into(),
-                    mime,
+                    mimetype,
                     Some(Encoding::Zstd),
                 )));
             }
