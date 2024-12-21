@@ -24,7 +24,7 @@ pub struct ResolvedFile<F = File> {
     pub handle: F,
     /// The resolved and sanitized path to the file.
     /// For directory indexes, this includes `index.html`.
-    /// For pre-encoded files, this will include the compressed extension. (`.gz` or `.br`)
+    /// For pre-encoded files, this will include the compressed extension. (`.gz`, `.br`, or `.zst`)
     pub path: PathBuf,
     /// Size in bytes.
     pub size: u64,
@@ -68,7 +68,7 @@ pub struct Resolver<O = TokioFileOpener> {
     /// Encodings the client is allowed to request with `Accept-Encoding`.
     ///
     /// This only supports pre-encoded files, that exist adjacent to the original file, but with an
-    /// additional `.br` or `.gz` suffix (after the original extension).
+    /// additional `.gz`, `.br`, or `.zst` suffix (after the original extension).
     ///
     /// Typically initialized with `AcceptEncoding::all()` or `AcceptEncoding::none()`.
     pub allowed_encodings: AcceptEncoding,
@@ -288,6 +288,18 @@ impl<O: FileOpener> Resolver<O> {
             .map(|mimetype| set_charset(mimetype).to_string());
 
         // Resolve pre-encoded files.
+        if accept_encoding.zstd {
+            let mut zstd_path = path.clone().into_os_string();
+            zstd_path.push(".zst");
+            if let Ok(file) = self.opener.open(zstd_path.as_ref()).await {
+                return Ok(ResolveResult::Found(ResolvedFile::new(
+                    file,
+                    zstd_path.into(),
+                    mime,
+                    Some(Encoding::Zstd),
+                )));
+            }
+        }
         if accept_encoding.br {
             let mut br_path = path.clone().into_os_string();
             br_path.push(".br");
@@ -337,6 +349,8 @@ pub enum Encoding {
     Gzip,
     /// Response body is encoded with brotli.
     Br,
+    /// Response body is encoded with zstd.
+    Zstd,
 }
 
 impl Encoding {
@@ -345,6 +359,7 @@ impl Encoding {
         HeaderValue::from_static(match self {
             Encoding::Gzip => "gzip",
             Encoding::Br => "br",
+            Encoding::Zstd => "zstd",
         })
     }
 }
@@ -356,6 +371,8 @@ pub struct AcceptEncoding {
     pub gzip: bool,
     /// Look for `.br` files.
     pub br: bool,
+    /// Look for `.zst` files.
+    pub zstd: bool,
 }
 
 impl AcceptEncoding {
@@ -364,6 +381,7 @@ impl AcceptEncoding {
         Self {
             gzip: true,
             br: true,
+            zstd: true,
         }
     }
 
@@ -372,6 +390,7 @@ impl AcceptEncoding {
         Self {
             gzip: false,
             br: false,
+            zstd: false,
         }
     }
 
@@ -384,6 +403,7 @@ impl AcceptEncoding {
                 match enc.split(';').next().unwrap().trim() {
                     "gzip" => res.gzip = true,
                     "br" => res.br = true,
+                    "zstd" => res.zstd = true,
                     _ => {}
                 }
             }
@@ -398,6 +418,7 @@ impl BitAnd for AcceptEncoding {
         Self {
             gzip: self.gzip && rhs.gzip,
             br: self.br && rhs.br,
+            zstd: self.zstd && rhs.zstd,
         }
     }
 }
